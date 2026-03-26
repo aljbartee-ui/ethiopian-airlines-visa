@@ -73,7 +73,7 @@ export async function createApplication(application: Omit<FormData, 'id' | 'subm
       custom_destination_airport: application.customDestinationAirport,
       needs_land_transport: application.needsLandTransport,
       passengers: application.passengers,
-    }]
+    }])
     .select()
     .single();
 
