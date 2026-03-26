@@ -28,6 +28,7 @@ import {
   X
 } from 'lucide-react';
 import type { FormData, Passenger } from '@/types';
+import { createApplication } from '@/lib/supabase';
 import { 
   AIRPORT_OPTIONS, 
   AFRICAN_NATIONALITIES,
@@ -56,6 +57,7 @@ const initialFormData: Omit<FormData, 'id' | 'submissionDate'> = {
   passengers: [{ ...initialPassenger, id: uuidv4() }],
   transitAirport: '',
   destinationAirportCode: '',
+  customDestinationAirport: '',
   needsLandTransport: false,
   civilIdFile: undefined,
   civilIdFileName: undefined,
@@ -139,6 +141,16 @@ export default function ApplicationForm() {
       return;
     }
 
+    if (!formData.destinationAirportCode) {
+      toast.error('Please select a destination airport');
+      return;
+    }
+
+    if (formData.destinationAirportCode === 'OTHER' && !formData.customDestinationAirport) {
+      toast.error('Please enter the airport details');
+      return;
+    }
+
     for (const passenger of formData.passengers) {
       if (!passenger.fullName || !passenger.nationality || !passenger.passportNumber || !passenger.contactNumber) {
         toast.error('Please fill in all passenger details');
@@ -158,23 +170,19 @@ export default function ApplicationForm() {
 
     setIsSubmitting(true);
 
-    // Simulate submission
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    try {
+      // Create application using Supabase (or localStorage as fallback)
+      const newSubmission = await createApplication(formData);
 
-    const newSubmission: FormData = {
-      ...formData,
-      id: uuidv4(),
-      submissionDate: new Date().toISOString(),
-    };
-
-    // Save to localStorage
-    const existingSubmissions = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
-    localStorage.setItem('visaSubmissions', JSON.stringify([...existingSubmissions, newSubmission]));
-
-    setSubmittedData(newSubmission);
-    setShowSuccess(true);
-    setIsSubmitting(false);
-    toast.success('Application submitted successfully!');
+      setSubmittedData(newSubmission);
+      setShowSuccess(true);
+      toast.success('Application submitted successfully!');
+    } catch (error) {
+      console.error('Error submitting application:', error);
+      toast.error('Failed to submit application. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const generateWhatsAppLink = () => {
@@ -345,7 +353,12 @@ export default function ApplicationForm() {
 
               <div>
                 <span className="text-white/60">Final Destination:</span>
-                <p>{DESTINATION_AIRPORTS.find(a => a.code === submittedData.destinationAirportCode)?.name} ({submittedData.destinationAirportCode})</p>
+                <p>
+                  {submittedData.destinationAirportCode === 'OTHER' 
+                    ? submittedData.customDestinationAirport 
+                    : DESTINATION_AIRPORTS.find(a => a.code === submittedData.destinationAirportCode)?.name} 
+                  ({submittedData.destinationAirportCode})
+                </p>
               </div>
 
               <div>
@@ -549,7 +562,9 @@ export default function ApplicationForm() {
           {/* Destination Airport - Searchable Dropdown */}
           <DestinationAirportSelector 
             value={formData.destinationAirportCode}
+            customValue={formData.customDestinationAirport || ''}
             onChange={(code) => setFormData(prev => ({ ...prev, destinationAirportCode: code }))}
+            onCustomChange={(value) => setFormData(prev => ({ ...prev, customDestinationAirport: value }))}
           />
 
           {/* Land Transportation Option */}
@@ -851,16 +866,19 @@ export default function ApplicationForm() {
 // Destination Airport Selector Component
 interface DestinationAirportSelectorProps {
   value: string;
+  customValue: string;
   onChange: (code: string) => void;
+  onCustomChange: (value: string) => void;
 }
 
-function DestinationAirportSelector({ value, onChange }: DestinationAirportSelectorProps) {
+function DestinationAirportSelector({ value, customValue, onChange, onCustomChange }: DestinationAirportSelectorProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Get selected airport details
   const selectedAirport = DESTINATION_AIRPORTS.find(a => a.code === value);
+  const isOtherSelected = value === 'OTHER';
 
   // Filter airports based on search term
   const filteredAirports = searchTerm.length >= 1
@@ -891,6 +909,7 @@ function DestinationAirportSelector({ value, onChange }: DestinationAirportSelec
 
   const handleClear = () => {
     onChange('');
+    onCustomChange('');
     setSearchTerm('');
   };
 
@@ -939,10 +958,26 @@ function DestinationAirportSelector({ value, onChange }: DestinationAirportSelec
                   setIsOpen(e.target.value.length >= 1);
                 }}
                 onFocus={() => searchTerm.length >= 1 && setIsOpen(true)}
-                placeholder="Type city name, airport name, or code (e.g. ADD, Addis Ababa)"
+                placeholder="Type city name, airport name, or code (e.g. ADD, Addis Ababa, KWI)"
                 className="w-full px-4 py-3 bg-[#1a1a1a] border border-white/20 rounded-lg text-white placeholder:text-white/40 focus:outline-none focus:border-[#FEDD00] focus:ring-1 focus:ring-[#FEDD00]"
               />
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+            </div>
+          )}
+
+          {/* Custom Airport Input (when OTHER is selected) */}
+          {isOtherSelected && (
+            <div className="mt-4">
+              <Label className="text-white/80 mb-2 block">
+                Enter Airport Details *
+              </Label>
+              <Input
+                value={customValue}
+                onChange={(e) => onCustomChange(e.target.value)}
+                placeholder="e.g. Kuwait International Airport (KWI)"
+                className="bg-[#1a1a1a] border-white/20 text-white placeholder:text-white/40"
+                required
+              />
             </div>
           )}
 
