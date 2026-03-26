@@ -4,6 +4,13 @@ export interface Passenger {
   nationality: string;
   passportNumber: string;
   contactNumber: string;
+  // Documents (stored as base64)
+  civilIdFile?: string;
+  civilIdFileName?: string;
+  passportFile?: string;
+  passportFileName?: string;
+  photoFile?: string;
+  photoFileName?: string;
 }
 
 export interface FormData {

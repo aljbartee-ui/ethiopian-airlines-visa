@@ -44,13 +44,7 @@ export async function getAllApplications() {
     destinationAirportCode: app.destination_airport_code,
     customDestinationAirport: app.custom_destination_airport,
     needsLandTransport: app.needs_land_transport,
-    passengers: app.passengers,
-    civilIdFile: app.civil_id_file,
-    civilIdFileName: app.civil_id_file_name,
-    passportFile: app.passport_file,
-    passportFileName: app.passport_file_name,
-    photoFile: app.photo_file,
-    photoFileName: app.photo_file_name,
+    passengers: app.passengers || [],
   }));
 }
 
@@ -58,7 +52,7 @@ export async function createApplication(application: Omit<FormData, 'id' | 'subm
   if (!isSupabaseConfigured()) {
     // Fallback to localStorage
     const existing = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
-    const newSubmission = {
+    const newSubmission: FormData = {
       ...application,
       id: crypto.randomUUID(),
       submissionDate: new Date().toISOString(),
@@ -79,13 +73,7 @@ export async function createApplication(application: Omit<FormData, 'id' | 'subm
       custom_destination_airport: application.customDestinationAirport,
       needs_land_transport: application.needsLandTransport,
       passengers: application.passengers,
-      civil_id_file: application.civilIdFile,
-      civil_id_file_name: application.civilIdFileName,
-      passport_file: application.passportFile,
-      passport_file_name: application.passportFileName,
-      photo_file: application.photoFile,
-      photo_file_name: application.photoFileName,
-    }])
+    }]
     .select()
     .single();
 

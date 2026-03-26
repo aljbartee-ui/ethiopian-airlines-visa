@@ -46,6 +46,12 @@ const initialPassenger: Passenger = {
   nationality: '',
   passportNumber: '',
   contactNumber: '',
+  civilIdFile: undefined,
+  civilIdFileName: undefined,
+  passportFile: undefined,
+  passportFileName: undefined,
+  photoFile: undefined,
+  photoFileName: undefined,
 };
 
 const initialFormData: Omit<FormData, 'id' | 'submissionDate'> = {
@@ -59,12 +65,6 @@ const initialFormData: Omit<FormData, 'id' | 'submissionDate'> = {
   destinationAirportCode: '',
   customDestinationAirport: '',
   needsLandTransport: false,
-  civilIdFile: undefined,
-  civilIdFileName: undefined,
-  passportFile: undefined,
-  passportFileName: undefined,
-  photoFile: undefined,
-  photoFileName: undefined,
 };
 
 export default function ApplicationForm() {
@@ -114,7 +114,7 @@ export default function ApplicationForm() {
     }));
   };
 
-  const handleFileUpload = (field: 'civilIdFile' | 'passportFile' | 'photoFile', file: File) => {
+  const handleFileUpload = (passengerIndex: number, field: 'civilIdFile' | 'passportFile' | 'photoFile', file: File) => {
     if (file.size > 5 * 1024 * 1024) {
       toast.error('File size must be less than 5MB');
       return;
@@ -124,10 +124,17 @@ export default function ApplicationForm() {
     reader.onloadend = () => {
       setFormData(prev => ({
         ...prev,
-        [field]: reader.result as string,
-        [`${field}Name`]: file.name,
+        passengers: prev.passengers.map((p, i) => 
+          i === passengerIndex 
+            ? {
+                ...p,
+                [field]: reader.result as string,
+                [`${field}Name`]: file.name,
+              }
+            : p
+        ),
       }));
-      toast.success(`${file.name} uploaded successfully`);
+      toast.success(`${file.name} uploaded successfully for passenger ${passengerIndex + 1}`);
     };
     reader.readAsDataURL(file);
   };
@@ -151,21 +158,20 @@ export default function ApplicationForm() {
       return;
     }
 
-    for (const passenger of formData.passengers) {
+    for (let i = 0; i < formData.passengers.length; i++) {
+      const passenger = formData.passengers[i];
       if (!passenger.fullName || !passenger.nationality || !passenger.passportNumber || !passenger.contactNumber) {
-        toast.error('Please fill in all passenger details');
+        toast.error(`Please fill in all details for passenger ${i + 1}`);
         return;
       }
-    }
-
-    if (!formData.civilIdFile) {
-      toast.error('Please upload your Kuwait Civil ID');
-      return;
-    }
-
-    if (!formData.passportFile) {
-      toast.error('Please upload your passport');
-      return;
+      if (!passenger.civilIdFile) {
+        toast.error(`Please upload Kuwait Civil ID for passenger ${i + 1}`);
+        return;
+      }
+      if (!passenger.passportFile) {
+        toast.error(`Please upload passport for passenger ${i + 1}`);
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -717,7 +723,7 @@ export default function ApplicationForm() {
             </CardContent>
           </Card>
 
-          {/* Document Upload */}
+          {/* Document Upload - Per Passenger */}
           <Card className="bg-[#2a2a2a] border-white/10 mb-6">
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
@@ -726,100 +732,110 @@ export default function ApplicationForm() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {/* Civil ID Upload */}
-                <div>
-                  <Label className="text-white/80 flex items-center gap-1">
-                    <CreditCard className="w-4 h-4" />
-                    Kuwait Civil ID *
-                  </Label>
-                  <div className="mt-2">
-                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/30 rounded-lg cursor-pointer hover:border-[#FEDD00] hover:bg-[#FEDD00]/5 transition-all duration-300">
-                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        {formData.civilIdFile ? (
-                          <>
-                            <Check className="w-8 h-8 text-green-500 mb-2" />
-                            <p className="text-xs text-white/60 text-center px-2">{formData.civilIdFileName}</p>
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="w-8 h-8 text-white/40 mb-2" />
-                            <p className="text-xs text-white/40">Click to upload</p>
-                          </>
-                        )}
+              <div className="space-y-8">
+                {formData.passengers.map((passenger, passengerIndex) => (
+                  <div key={passenger.id} className="p-4 border border-white/10 rounded-lg">
+                    <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-[#FEDD00]" />
+                      Documents for {passenger.fullName || `Passenger ${passengerIndex + 1}`}
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      {/* Civil ID Upload */}
+                      <div>
+                        <Label className="text-white/80 flex items-center gap-1">
+                          <CreditCard className="w-4 h-4" />
+                          Kuwait Civil ID *
+                        </Label>
+                        <div className="mt-2">
+                          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/30 rounded-lg cursor-pointer hover:border-[#FEDD00] hover:bg-[#FEDD00]/5 transition-all duration-300">
+                            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                              {passenger.civilIdFile ? (
+                                <>
+                                  <Check className="w-8 h-8 text-green-500 mb-2" />
+                                  <p className="text-xs text-white/60 text-center px-2">{passenger.civilIdFileName}</p>
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="w-8 h-8 text-white/40 mb-2" />
+                                  <p className="text-xs text-white/40">Click to upload</p>
+                                </>
+                              )}
+                            </div>
+                            <input
+                              type="file"
+                              className="hidden"
+                              accept="image/*,.pdf"
+                              onChange={(e) => e.target.files?.[0] && handleFileUpload(passengerIndex, 'civilIdFile', e.target.files[0])}
+                            />
+                          </label>
+                        </div>
                       </div>
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept="image/*,.pdf"
-                        onChange={(e) => e.target.files?.[0] && handleFileUpload('civilIdFile', e.target.files[0])}
-                      />
-                    </label>
-                  </div>
-                </div>
 
-                {/* Passport Upload */}
-                <div>
-                  <Label className="text-white/80 flex items-center gap-1">
-                    <FileText className="w-4 h-4" />
-                    Passport *
-                  </Label>
-                  <div className="mt-2">
-                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/30 rounded-lg cursor-pointer hover:border-[#FEDD00] hover:bg-[#FEDD00]/5 transition-all duration-300">
-                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        {formData.passportFile ? (
-                          <>
-                            <Check className="w-8 h-8 text-green-500 mb-2" />
-                            <p className="text-xs text-white/60 text-center px-2">{formData.passportFileName}</p>
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="w-8 h-8 text-white/40 mb-2" />
-                            <p className="text-xs text-white/40">Click to upload</p>
-                          </>
-                        )}
+                      {/* Passport Upload */}
+                      <div>
+                        <Label className="text-white/80 flex items-center gap-1">
+                          <FileText className="w-4 h-4" />
+                          Passport *
+                        </Label>
+                        <div className="mt-2">
+                          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/30 rounded-lg cursor-pointer hover:border-[#FEDD00] hover:bg-[#FEDD00]/5 transition-all duration-300">
+                            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                              {passenger.passportFile ? (
+                                <>
+                                  <Check className="w-8 h-8 text-green-500 mb-2" />
+                                  <p className="text-xs text-white/60 text-center px-2">{passenger.passportFileName}</p>
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="w-8 h-8 text-white/40 mb-2" />
+                                  <p className="text-xs text-white/40">Click to upload</p>
+                                </>
+                              )}
+                            </div>
+                            <input
+                              type="file"
+                              className="hidden"
+                              accept="image/*,.pdf"
+                              onChange={(e) => e.target.files?.[0] && handleFileUpload(passengerIndex, 'passportFile', e.target.files[0])}
+                            />
+                          </label>
+                        </div>
                       </div>
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept="image/*,.pdf"
-                        onChange={(e) => e.target.files?.[0] && handleFileUpload('passportFile', e.target.files[0])}
-                      />
-                    </label>
-                  </div>
-                </div>
 
-                {/* Photo Upload (Optional) */}
-                <div>
-                  <Label className="text-white/80 flex items-center gap-1">
-                    <ImageIcon className="w-4 h-4" />
-                    Photo <span className="text-white/40">(Optional)</span>
-                  </Label>
-                  <div className="mt-2">
-                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/30 rounded-lg cursor-pointer hover:border-[#FEDD00] hover:bg-[#FEDD00]/5 transition-all duration-300">
-                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        {formData.photoFile ? (
-                          <>
-                            <Check className="w-8 h-8 text-green-500 mb-2" />
-                            <p className="text-xs text-white/60 text-center px-2">{formData.photoFileName}</p>
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="w-8 h-8 text-white/40 mb-2" />
-                            <p className="text-xs text-white/40">White background</p>
-                            <p className="text-xs text-white/30">Optional</p>
-                          </>
-                        )}
+                      {/* Photo Upload (Optional) */}
+                      <div>
+                        <Label className="text-white/80 flex items-center gap-1">
+                          <ImageIcon className="w-4 h-4" />
+                          Photo <span className="text-white/40">(Optional)</span>
+                        </Label>
+                        <div className="mt-2">
+                          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/30 rounded-lg cursor-pointer hover:border-[#FEDD00] hover:bg-[#FEDD00]/5 transition-all duration-300">
+                            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                              {passenger.photoFile ? (
+                                <>
+                                  <Check className="w-8 h-8 text-green-500 mb-2" />
+                                  <p className="text-xs text-white/60 text-center px-2">{passenger.photoFileName}</p>
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="w-8 h-8 text-white/40 mb-2" />
+                                  <p className="text-xs text-white/40">White background</p>
+                                  <p className="text-xs text-white/30">Optional</p>
+                                </>
+                              )}
+                            </div>
+                            <input
+                              type="file"
+                              className="hidden"
+                              accept="image/*"
+                              onChange={(e) => e.target.files?.[0] && handleFileUpload(passengerIndex, 'photoFile', e.target.files[0])}
+                            />
+                          </label>
+                        </div>
                       </div>
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept="image/*"
-                        onChange={(e) => e.target.files?.[0] && handleFileUpload('photoFile', e.target.files[0])}
-                      />
-                    </label>
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
             </CardContent>
           </Card>

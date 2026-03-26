@@ -707,93 +707,100 @@ export default function AdminDashboard() {
 
               <Separator className="bg-white/10" />
 
-              {/* Documents */}
+              {/* Documents - Per Passenger */}
               <div>
                 <h3 className="text-lg font-semibold text-[#FEDD00] mb-3">Documents</h3>
-                <div className="grid grid-cols-3 gap-4">
-                  {/* Civil ID */}
-                  <div className="text-center">
-                    {selectedSubmission.civilIdFile ? (
-                      <button
-                        onClick={() => setViewingDocument({
-                          type: 'Civil ID',
-                          url: selectedSubmission.civilIdFile!,
-                          name: selectedSubmission.civilIdFileName || 'civil-id.jpg'
-                        })}
-                        className="w-full h-24 rounded-lg overflow-hidden border-2 border-green-500/50 hover:border-green-500 transition-colors relative group"
-                      >
-                        <img 
-                          src={selectedSubmission.civilIdFile} 
-                          alt="Civil ID" 
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Eye className="w-6 h-6 text-white" />
+                <div className="space-y-6">
+                  {selectedSubmission.passengers.map((passenger, index) => (
+                    <div key={passenger.id} className="p-4 border border-white/10 rounded-lg">
+                      <h4 className="text-white font-semibold mb-3">{passenger.fullName || `Passenger ${index + 1}`}</h4>
+                      <div className="grid grid-cols-3 gap-4">
+                        {/* Civil ID */}
+                        <div className="text-center">
+                          {passenger.civilIdFile ? (
+                            <button
+                              onClick={() => setViewingDocument({
+                                type: 'Civil ID',
+                                url: passenger.civilIdFile!,
+                                name: passenger.civilIdFileName || 'civil-id.jpg'
+                              })}
+                              className="w-full h-24 rounded-lg overflow-hidden border-2 border-green-500/50 hover:border-green-500 transition-colors relative group"
+                            >
+                              <img 
+                                src={passenger.civilIdFile} 
+                                alt="Civil ID" 
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Eye className="w-6 h-6 text-white" />
+                              </div>
+                            </button>
+                          ) : (
+                            <div className="h-24 rounded-lg flex items-center justify-center bg-[#1a1a1a]">
+                              <X className="w-8 h-8 text-white/20" />
+                            </div>
+                          )}
+                          <p className="text-sm mt-2">Civil ID</p>
                         </div>
-                      </button>
-                    ) : (
-                      <div className="h-24 rounded-lg flex items-center justify-center bg-[#1a1a1a]">
-                        <X className="w-8 h-8 text-white/20" />
-                      </div>
-                    )}
-                    <p className="text-sm mt-2">Civil ID</p>
-                  </div>
 
-                  {/* Passport */}
-                  <div className="text-center">
-                    {selectedSubmission.passportFile ? (
-                      <button
-                        onClick={() => setViewingDocument({
-                          type: 'Passport',
-                          url: selectedSubmission.passportFile!,
-                          name: selectedSubmission.passportFileName || 'passport.jpg'
-                        })}
-                        className="w-full h-24 rounded-lg overflow-hidden border-2 border-green-500/50 hover:border-green-500 transition-colors relative group"
-                      >
-                        <img 
-                          src={selectedSubmission.passportFile} 
-                          alt="Passport" 
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Eye className="w-6 h-6 text-white" />
+                        {/* Passport */}
+                        <div className="text-center">
+                          {passenger.passportFile ? (
+                            <button
+                              onClick={() => setViewingDocument({
+                                type: 'Passport',
+                                url: passenger.passportFile!,
+                                name: passenger.passportFileName || 'passport.jpg'
+                              })}
+                              className="w-full h-24 rounded-lg overflow-hidden border-2 border-green-500/50 hover:border-green-500 transition-colors relative group"
+                            >
+                              <img 
+                                src={passenger.passportFile} 
+                                alt="Passport" 
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Eye className="w-6 h-6 text-white" />
+                              </div>
+                            </button>
+                          ) : (
+                            <div className="h-24 rounded-lg flex items-center justify-center bg-[#1a1a1a]">
+                              <X className="w-8 h-8 text-white/20" />
+                            </div>
+                          )}
+                          <p className="text-sm mt-2">Passport</p>
                         </div>
-                      </button>
-                    ) : (
-                      <div className="h-24 rounded-lg flex items-center justify-center bg-[#1a1a1a]">
-                        <X className="w-8 h-8 text-white/20" />
-                      </div>
-                    )}
-                    <p className="text-sm mt-2">Passport</p>
-                  </div>
 
-                  {/* Photo */}
-                  <div className="text-center">
-                    {selectedSubmission.photoFile ? (
-                      <button
-                        onClick={() => setViewingDocument({
-                          type: 'Photo',
-                          url: selectedSubmission.photoFile!,
-                          name: selectedSubmission.photoFileName || 'photo.jpg'
-                        })}
-                        className="w-full h-24 rounded-lg overflow-hidden border-2 border-green-500/50 hover:border-green-500 transition-colors relative group"
-                      >
-                        <img 
-                          src={selectedSubmission.photoFile} 
-                          alt="Photo" 
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Eye className="w-6 h-6 text-white" />
+                        {/* Photo */}
+                        <div className="text-center">
+                          {passenger.photoFile ? (
+                            <button
+                              onClick={() => setViewingDocument({
+                                type: 'Photo',
+                                url: passenger.photoFile!,
+                                name: passenger.photoFileName || 'photo.jpg'
+                              })}
+                              className="w-full h-24 rounded-lg overflow-hidden border-2 border-green-500/50 hover:border-green-500 transition-colors relative group"
+                            >
+                              <img 
+                                src={passenger.photoFile} 
+                                alt="Photo" 
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Eye className="w-6 h-6 text-white" />
+                              </div>
+                            </button>
+                          ) : (
+                            <div className="h-24 rounded-lg flex items-center justify-center bg-[#1a1a1a]">
+                              <span className="text-white/20 text-xs">Optional</span>
+                            </div>
+                          )}
+                          <p className="text-sm mt-2">Photo</p>
                         </div>
-                      </button>
-                    ) : (
-                      <div className="h-24 rounded-lg flex items-center justify-center bg-[#1a1a1a]">
-                        <span className="text-white/20 text-xs">Optional</span>
                       </div>
-                    )}
-                    <p className="text-sm mt-2">Photo</p>
-                  </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
