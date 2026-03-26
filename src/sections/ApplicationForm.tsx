@@ -403,26 +403,31 @@ export default function ApplicationForm() {
               <Separator className="bg-white/20" />
 
               <h3 className="text-xl font-bold text-[#FEDD00]">Submitted Documents</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="text-center">
-                  <div className={`w-full h-32 border-2 rounded-lg flex items-center justify-center ${submittedData.civilIdFile ? 'border-green-500 bg-green-500/10' : 'border-white/20'}`}>
-                    {submittedData.civilIdFile ? <Check className="w-8 h-8 text-green-500" /> : <span className="text-white/40">Not Uploaded</span>}
+              {submittedData.passengers.map((passenger, index) => (
+                <div key={passenger.id} className="border border-white/20 rounded-lg p-4">
+                  <h4 className="font-semibold mb-3">Documents for {passenger.fullName || `Passenger ${index + 1}`}</h4>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="text-center">
+                      <div className={`w-full h-24 border-2 rounded-lg flex items-center justify-center ${passenger.civilIdFile ? 'border-green-500 bg-green-500/10' : 'border-white/20'}`}>
+                        {passenger.civilIdFile ? <Check className="w-6 h-6 text-green-500" /> : <span className="text-white/40 text-xs">Not Uploaded</span>}
+                      </div>
+                      <p className="mt-2 text-sm">Civil ID</p>
+                    </div>
+                    <div className="text-center">
+                      <div className={`w-full h-24 border-2 rounded-lg flex items-center justify-center ${passenger.passportFile ? 'border-green-500 bg-green-500/10' : 'border-white/20'}`}>
+                        {passenger.passportFile ? <Check className="w-6 h-6 text-green-500" /> : <span className="text-white/40 text-xs">Not Uploaded</span>}
+                      </div>
+                      <p className="mt-2 text-sm">Passport</p>
+                    </div>
+                    <div className="text-center">
+                      <div className={`w-full h-24 border-2 rounded-lg flex items-center justify-center ${passenger.photoFile ? 'border-green-500 bg-green-500/10' : 'border-white/20'}`}>
+                        {passenger.photoFile ? <Check className="w-6 h-6 text-green-500" /> : <span className="text-white/40 text-xs">Optional</span>}
+                      </div>
+                      <p className="mt-2 text-sm">Photo (Optional)</p>
+                    </div>
                   </div>
-                  <p className="mt-2 text-sm">Civil ID</p>
                 </div>
-                <div className="text-center">
-                  <div className={`w-full h-32 border-2 rounded-lg flex items-center justify-center ${submittedData.passportFile ? 'border-green-500 bg-green-500/10' : 'border-white/20'}`}>
-                    {submittedData.passportFile ? <Check className="w-8 h-8 text-green-500" /> : <span className="text-white/40">Not Uploaded</span>}
-                  </div>
-                  <p className="mt-2 text-sm">Passport</p>
-                </div>
-                <div className="text-center">
-                  <div className={`w-full h-32 border-2 rounded-lg flex items-center justify-center ${submittedData.photoFile ? 'border-green-500 bg-green-500/10' : 'border-white/20'}`}>
-                    {submittedData.photoFile ? <Check className="w-8 h-8 text-green-500" /> : <span className="text-white/40">Optional</span>}
-                  </div>
-                  <p className="mt-2 text-sm">Photo (Optional)</p>
-                </div>
-              </div>
+              ))}
 
               <div className="mt-8 pt-4 border-t border-white/20 text-center text-white/50 text-sm">
                 <p>Ethiopian Airlines Kuwait Office • WhatsApp: {WHATSAPP_NUMBER}</p>
