@@ -26,7 +26,7 @@ import {
   Trash2
 } from 'lucide-react';
 import type { FormData } from '@/types';
-import { AIRPORT_OPTIONS, DESTINATION_AIRPORTS, WHATSAPP_NUMBER } from '@/types';
+import { AIRPORT_OPTIONS, DESTINATION_AIRPORTS } from '@/types';
 import { getAllApplications, updateApplicationStatus, deleteApplication, isSupabaseConfigured } from '@/lib/supabase';
 
 const ADMIN_PASSWORD = 'ethiopian2024'; // In production, use proper authentication
@@ -806,16 +806,28 @@ export default function AdminDashboard() {
 
               {/* WhatsApp Link */}
               <div className="pt-4">
-                <a
-                  href={`https://wa.me/${WHATSAPP_NUMBER}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block"
-                >
-                  <Button className="w-full bg-green-600 hover:bg-green-700 text-white">
-                    Open WhatsApp to Contact
-                  </Button>
-                </a>
+                {(() => {
+                  // Get the contact number based on travel type
+                  const contactNumber = selectedSubmission.travelType !== 'individual' && selectedSubmission.groupContactNumber
+                    ? selectedSubmission.groupContactNumber
+                    : selectedSubmission.passengers[0]?.contactNumber;
+                  
+                  // Format the number for WhatsApp (remove any non-digit characters except +)
+                  const formattedNumber = contactNumber?.replace(/[^\d+]/g, '') || '';
+                  
+                  return (
+                    <a
+                      href={`https://wa.me/${formattedNumber}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block"
+                    >
+                      <Button className="w-full bg-green-600 hover:bg-green-700 text-white">
+                        Open WhatsApp to Contact
+                      </Button>
+                    </a>
+                  );
+                })()}
               </div>
             </div>
           )}
