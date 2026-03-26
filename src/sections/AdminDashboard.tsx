@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import type { FormData } from '@/types';
 import { AIRPORT_OPTIONS, DESTINATION_AIRPORTS, WHATSAPP_NUMBER } from '@/types';
+import { getAllApplications, updateApplicationStatus, deleteApplication, isSupabaseConfigured } from '@/lib/supabase';
 
 const ADMIN_PASSWORD = 'ethiopian2024'; // In production, use proper authentication
 
@@ -67,19 +68,29 @@ export default function AdminDashboard() {
     
     // Load submissions
     loadSubmissions();
-  }, []);
+    
+    // Refresh every 10 seconds to see new submissions from other users
+    const interval = setInterval(() => {
+      if (isAuthenticated) {
+        loadSubmissions();
+      }
+    }, 10000);
+    
+    return () => clearInterval(interval);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     filterSubmissions();
   }, [submissions, searchTerm, statusFilter]);
 
-  const loadSubmissions = () => {
-    const data = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
-    // Sort by date, newest first
-    data.sort((a: FormData, b: FormData) => 
-      new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
-    );
-    setSubmissions(data);
+  const loadSubmissions = async () => {
+    try {
+      const data = await getAllApplications();
+      setSubmissions(data);
+    } catch (error) {
+      console.error('Error loading submissions:', error);
+      toast.error('Failed to load applications');
+    }
   };
 
   const filterSubmissions = () => {
@@ -122,13 +133,18 @@ export default function AdminDashboard() {
     toast.info('Logged out successfully');
   };
 
-  const updateStatus = (id: string, newStatus: FormData['status']) => {
-    const updated = submissions.map(s => 
-      s.id === id ? { ...s, status: newStatus } : s
-    );
-    localStorage.setItem('visaSubmissions', JSON.stringify(updated));
-    setSubmissions(updated);
-    toast.success(`Status updated to ${STATUS_LABELS[newStatus]}`);
+  const updateStatus = async (id: string, newStatus: FormData['status']) => {
+    try {
+      await updateApplicationStatus(id, newStatus);
+      const updated = submissions.map(s => 
+        s.id === id ? { ...s, status: newStatus } : s
+      );
+      setSubmissions(updated);
+      toast.success(`Status updated to ${STATUS_LABELS[newStatus]}`);
+    } catch (error) {
+      console.error('Error updating status:', error);
+      toast.error('Failed to update status');
+    }
   };
 
   const viewDetails = (submission: FormData) => {
@@ -136,12 +152,17 @@ export default function AdminDashboard() {
     setIsDetailOpen(true);
   };
 
-  const deleteSubmission = (id: string) => {
+  const deleteSubmission = async (id: string) => {
     if (confirm('Are you sure you want to delete this application? This action cannot be undone.')) {
-      const updated = submissions.filter(s => s.id !== id);
-      localStorage.setItem('visaSubmissions', JSON.stringify(updated));
-      setSubmissions(updated);
-      toast.success('Application deleted successfully');
+      try {
+        await deleteApplication(id);
+        const updated = submissions.filter(s => s.id !== id);
+        setSubmissions(updated);
+        toast.success('Application deleted successfully');
+      } catch (error) {
+        console.error('Error deleting application:', error);
+        toast.error('Failed to delete application');
+      }
     }
   };
 
@@ -168,16 +189,17 @@ export default function AdminDashboard() {
 
     const rows = submissions.map(s => {
       const destAirport = DESTINATION_AIRPORTS.find(a => a.code === s.destinationAirportCode);
+      const isOther = s.destinationAirportCode === 'OTHER';
       return [
         s.id,
         new Date(s.submissionDate).toLocaleDateString(),
         s.status,
         s.travelType,
         s.transitAirport,
-        destAirport?.name || '',
+        isOther ? s.customDestinationAirport : (destAirport?.name || ''),
         s.destinationAirportCode || '',
-        destAirport?.city || '',
-        destAirport?.country || '',
+        isOther ? '' : (destAirport?.city || ''),
+        isOther ? '' : (destAirport?.country || ''),
         s.needsLandTransport ? 'Yes' : 'No',
         s.passengers.length,
         s.passengers.map(p => p.fullName).join('; '),
@@ -308,6 +330,11 @@ export default function AdminDashboard() {
               </h1>
             </div>
             <div className="flex items-center gap-3">
+              {/* Connection Status */}
+              <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs ${isSupabaseConfigured() ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                <div className={`w-2 h-2 rounded-full ${isSupabaseConfigured() ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
+                {isSupabaseConfigured() ? 'Cloud Sync' : 'Local Mode'}
+              </div>
               <Button
                 onClick={exportToCSV}
                 variant="outline"
@@ -595,21 +622,29 @@ export default function AdminDashboard() {
                 <div className="grid grid-cols-1 gap-2">
                   <div>
                     <span className="text-white/50">Airport:</span>
-                    <p>{DESTINATION_AIRPORTS.find(a => a.code === selectedSubmission.destinationAirportCode)?.name || 'Unknown'}</p>
+                    <p>
+                      {selectedSubmission.destinationAirportCode === 'OTHER' 
+                        ? selectedSubmission.customDestinationAirport 
+                        : DESTINATION_AIRPORTS.find(a => a.code === selectedSubmission.destinationAirportCode)?.name || 'Unknown'}
+                    </p>
                   </div>
                   <div className="flex gap-4">
                     <div>
                       <span className="text-white/50">Code:</span>
                       <p>{selectedSubmission.destinationAirportCode}</p>
                     </div>
-                    <div>
-                      <span className="text-white/50">City:</span>
-                      <p>{DESTINATION_AIRPORTS.find(a => a.code === selectedSubmission.destinationAirportCode)?.city || 'Unknown'}</p>
-                    </div>
-                    <div>
-                      <span className="text-white/50">Country:</span>
-                      <p>{DESTINATION_AIRPORTS.find(a => a.code === selectedSubmission.destinationAirportCode)?.country || 'Unknown'}</p>
-                    </div>
+                    {selectedSubmission.destinationAirportCode !== 'OTHER' && (
+                      <>
+                        <div>
+                          <span className="text-white/50">City:</span>
+                          <p>{DESTINATION_AIRPORTS.find(a => a.code === selectedSubmission.destinationAirportCode)?.city || 'Unknown'}</p>
+                        </div>
+                        <div>
+                          <span className="text-white/50">Country:</span>
+                          <p>{DESTINATION_AIRPORTS.find(a => a.code === selectedSubmission.destinationAirportCode)?.country || 'Unknown'}</p>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
