@@ -32,7 +32,26 @@ export async function getAllApplications() {
     return [];
   }
 
-  return data || [];
+  // Map snake_case from Supabase to camelCase for the frontend
+  return (data || []).map((app: any) => ({
+    id: app.id,
+    submissionDate: app.submission_date,
+    status: app.status,
+    travelType: app.travel_type,
+    groupContactName: app.group_contact_name,
+    groupContactNumber: app.group_contact_number,
+    transitAirport: app.transit_airport,
+    destinationAirportCode: app.destination_airport_code,
+    customDestinationAirport: app.custom_destination_airport,
+    needsLandTransport: app.needs_land_transport,
+    passengers: app.passengers,
+    civilIdFile: app.civil_id_file,
+    civilIdFileName: app.civil_id_file_name,
+    passportFile: app.passport_file,
+    passportFileName: app.passport_file_name,
+    photoFile: app.photo_file,
+    photoFileName: app.photo_file_name,
+  }));
 }
 
 export async function createApplication(application: Omit<FormData, 'id' | 'submissionDate'>) {
