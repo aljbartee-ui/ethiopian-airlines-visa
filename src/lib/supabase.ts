@@ -33,19 +33,52 @@ export async function getAllApplications() {
   }
 
   // Map snake_case from Supabase to camelCase for the frontend
-  return (data || []).map((app: any) => ({
-    id: app.id,
-    submissionDate: app.submission_date,
-    status: app.status,
-    travelType: app.travel_type,
-    groupContactName: app.group_contact_name,
-    groupContactNumber: app.group_contact_number,
-    transitAirport: app.transit_airport,
-    destinationAirportCode: app.destination_airport_code,
-    customDestinationAirport: app.custom_destination_airport,
-    needsLandTransport: app.needs_land_transport,
-    passengers: app.passengers || [],
-  }));
+  // Also handle backward compatibility for old applications that don't have the passengers array
+  return (data || []).map((app: any) => {
+    let passengers = app.passengers || [];
+    
+    // Backward compatibility: if no passengers array but old fields exist, reconstruct from old format
+    if (passengers.length === 0 && app.civil_id_file) {
+      passengers = [{
+        id: crypto.randomUUID(),
+        fullName: 'Primary Applicant',
+        nationality: '',
+        passportNumber: '',
+        contactNumber: '',
+        civilIdFile: app.civil_id_file,
+        civilIdFileName: app.civil_id_file_name,
+        passportFile: app.passport_file,
+        passportFileName: app.passport_file_name,
+        photoFile: app.photo_file,
+        photoFileName: app.photo_file_name,
+      }];
+    }
+    
+    // If still no passengers, create a default empty passenger entry
+    if (passengers.length === 0) {
+      passengers = [{
+        id: crypto.randomUUID(),
+        fullName: 'Applicant',
+        nationality: '',
+        passportNumber: '',
+        contactNumber: '',
+      }];
+    }
+    
+    return {
+      id: app.id,
+      submissionDate: app.submission_date,
+      status: app.status,
+      travelType: app.travel_type,
+      groupContactName: app.group_contact_name,
+      groupContactNumber: app.group_contact_number,
+      transitAirport: app.transit_airport,
+      destinationAirportCode: app.destination_airport_code,
+      customDestinationAirport: app.custom_destination_airport,
+      needsLandTransport: app.needs_land_transport,
+      passengers,
+    };
+  });
 }
 
 export async function createApplication(application: Omit<FormData, 'id' | 'submissionDate'>) {
