@@ -7,7 +7,14 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 // Check if Supabase is configured
 export const isSupabaseConfigured = () => {
-  return supabaseUrl && supabaseKey;
+  const configured = supabaseUrl && supabaseKey;
+  if (!configured) {
+    console.warn('Supabase is not configured. Missing environment variables:', {
+      hasUrl: !!supabaseUrl,
+      hasKey: !!supabaseKey
+    });
+  }
+  return configured;
 };
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
@@ -16,74 +23,94 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 export async function getAllApplications() {
   if (!isSupabaseConfigured()) {
     // Fallback to localStorage
+    console.log('Supabase not configured, using localStorage fallback');
     const data = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
     return data.sort((a: FormData, b: FormData) => 
       new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
     );
   }
 
-  const { data, error } = await supabase
-    .from('visa_applications')
-    .select('*')
-    .order('submission_date', { ascending: false });
+  try {
+    console.log('Fetching applications from Supabase...');
+    const { data, error } = await supabase
+      .from('visa_applications')
+      .select('*')
+      .order('submission_date', { ascending: false });
 
-  if (error) {
-    console.error('Error fetching applications:', error);
+    if (error) {
+      console.error('Supabase query error:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
+      return [];
+    }
+
+    console.log(`Successfully fetched ${data?.length || 0} applications from Supabase`);
+
+    // Map snake_case from Supabase to camelCase for the frontend
+    // Also handle backward compatibility for old applications that don't have the passengers array
+    if (!data || data.length === 0) {
+      console.log('No applications found in Supabase');
+      return [];
+    }
+
+    return (data || []).map((app: any) => {
+      let passengers = app.passengers || [];
+      
+      // Backward compatibility: if no passengers array but old fields exist, reconstruct from old format
+      if (passengers.length === 0 && app.civil_id_file) {
+        passengers = [{
+          id: crypto.randomUUID(),
+          fullName: 'Primary Applicant',
+          nationality: '',
+          passportNumber: '',
+          contactNumber: '',
+          civilIdFile: app.civil_id_file,
+          civilIdFileName: app.civil_id_file_name,
+          passportFile: app.passport_file,
+          passportFileName: app.passport_file_name,
+          photoFile: app.photo_file,
+          photoFileName: app.photo_file_name,
+        }];
+      }
+      
+      // If still no passengers, create a default empty passenger entry
+      if (passengers.length === 0) {
+        passengers = [{
+          id: crypto.randomUUID(),
+          fullName: 'Applicant',
+          nationality: '',
+          passportNumber: '',
+          contactNumber: '',
+        }];
+      }
+      
+      return {
+        id: app.id,
+        submissionDate: app.submission_date,
+        status: app.status,
+        travelType: app.travel_type,
+        groupContactName: app.group_contact_name,
+        groupContactNumber: app.group_contact_number,
+        transitAirport: app.transit_airport,
+        destinationAirportCode: app.destination_airport_code,
+        customDestinationAirport: app.custom_destination_airport,
+        needsLandTransport: app.needs_land_transport,
+        passengers,
+      };
+    });
+  } catch (err) {
+    console.error('Unexpected error fetching applications:', err);
     return [];
   }
-
-  // Map snake_case from Supabase to camelCase for the frontend
-  // Also handle backward compatibility for old applications that don't have the passengers array
-  return (data || []).map((app: any) => {
-    let passengers = app.passengers || [];
-    
-    // Backward compatibility: if no passengers array but old fields exist, reconstruct from old format
-    if (passengers.length === 0 && app.civil_id_file) {
-      passengers = [{
-        id: crypto.randomUUID(),
-        fullName: 'Primary Applicant',
-        nationality: '',
-        passportNumber: '',
-        contactNumber: '',
-        civilIdFile: app.civil_id_file,
-        civilIdFileName: app.civil_id_file_name,
-        passportFile: app.passport_file,
-        passportFileName: app.passport_file_name,
-        photoFile: app.photo_file,
-        photoFileName: app.photo_file_name,
-      }];
-    }
-    
-    // If still no passengers, create a default empty passenger entry
-    if (passengers.length === 0) {
-      passengers = [{
-        id: crypto.randomUUID(),
-        fullName: 'Applicant',
-        nationality: '',
-        passportNumber: '',
-        contactNumber: '',
-      }];
-    }
-    
-    return {
-      id: app.id,
-      submissionDate: app.submission_date,
-      status: app.status,
-      travelType: app.travel_type,
-      groupContactName: app.group_contact_name,
-      groupContactNumber: app.group_contact_number,
-      transitAirport: app.transit_airport,
-      destinationAirportCode: app.destination_airport_code,
-      customDestinationAirport: app.custom_destination_airport,
-      needsLandTransport: app.needs_land_transport,
-      passengers,
-    };
-  });
 }
 
 export async function createApplication(application: Omit<FormData, 'id' | 'submissionDate'>) {
   if (!isSupabaseConfigured()) {
     // Fallback to localStorage
+    console.log('Supabase not configured, saving to localStorage');
     const existing = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
     const newSubmission: FormData = {
       ...application,
@@ -94,28 +121,38 @@ export async function createApplication(application: Omit<FormData, 'id' | 'subm
     return newSubmission;
   }
 
-  const { data, error } = await supabase
-    .from('visa_applications')
-    .insert([{
-      status: application.status,
-      travel_type: application.travelType,
-      group_contact_name: application.groupContactName,
-      group_contact_number: application.groupContactNumber,
-      transit_airport: application.transitAirport,
-      destination_airport_code: application.destinationAirportCode,
-      custom_destination_airport: application.customDestinationAirport,
-      needs_land_transport: application.needsLandTransport,
-      passengers: application.passengers,
-    }])
-    .select()
-    .single();
+  try {
+    console.log('Creating application in Supabase...');
+    const { data, error } = await supabase
+      .from('visa_applications')
+      .insert([{
+        status: application.status,
+        travel_type: application.travelType,
+        group_contact_name: application.groupContactName,
+        group_contact_number: application.groupContactNumber,
+        transit_airport: application.transitAirport,
+        destination_airport_code: application.destinationAirportCode,
+        custom_destination_airport: application.customDestinationAirport,
+        needs_land_transport: application.needsLandTransport,
+        passengers: application.passengers,
+      }])
+      .select()
+      .single();
 
-  if (error) {
-    console.error('Error creating application:', error);
-    throw error;
+    if (error) {
+      console.error('Error creating application:', {
+        message: error.message,
+        code: error.code,
+        details: error.details
+      });
+      throw error;
+    }
+    console.log('Application created successfully');
+    return data;
+  } catch (err) {
+    console.error('Unexpected error creating application:', err);
+    throw err;
   }
-
-  return data;
 }
 
 export async function updateApplicationStatus(id: string, status: FormData['status']) {
