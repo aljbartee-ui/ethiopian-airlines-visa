@@ -47,6 +47,17 @@ const STATUS_LABELS = {
   completed: 'Completed',
 };
 
+// Helper function to determine trip direction
+const getTripDirection = (destinationCode: string): { type: 'inbound' | 'outbound'; label: string; color: string } => {
+  const inboundCodes = ['RUH', 'DMM', 'JED', 'MED', 'GIZ', 'KWI'];
+  
+  if (inboundCodes.includes(destinationCode)) {
+    return { type: 'inbound', label: 'Inbound (Coming)', color: 'bg-blue-500/20 text-blue-400 border-blue-500/40' };
+  }
+  
+  return { type: 'outbound', label: 'Outbound (Leaving)', color: 'bg-purple-500/20 text-purple-400 border-purple-500/40' };
+};
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -618,7 +629,17 @@ export default function AdminDashboard() {
 
               {/* Destination Info */}
               <div>
-                <h3 className="text-lg font-semibold text-[#FEDD00] mb-3">Final Destination</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-[#FEDD00]">Final Destination</h3>
+                  {(() => {
+                    const tripDirection = getTripDirection(selectedSubmission.destinationAirportCode);
+                    return (
+                      <Badge variant="outline" className={`${tripDirection.color} border`}>
+                        {tripDirection.label}
+                      </Badge>
+                    );
+                  })()}
+                </div>
                 <div className="grid grid-cols-1 gap-2">
                   <div>
                     <span className="text-white/50">Airport:</span>
