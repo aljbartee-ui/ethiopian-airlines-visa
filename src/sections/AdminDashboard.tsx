@@ -215,6 +215,7 @@ export default function AdminDashboard() {
     const rows = submissions.map(s => {
       const destAirport = DESTINATION_AIRPORTS.find(a => a.code === s.destinationAirportCode);
       const isOther = s.destinationAirportCode === 'OTHER';
+      const passengers = s.passengers || [];
       return [
         s.id,
         new Date(s.submissionDate).toLocaleDateString(),
@@ -226,11 +227,11 @@ export default function AdminDashboard() {
         isOther ? '' : (destAirport?.city || ''),
         isOther ? '' : (destAirport?.country || ''),
         s.needsLandTransport ? 'Yes' : 'No',
-        s.passengers.length,
-        s.passengers.map(p => p.fullName).join('; '),
-        s.passengers.map(p => p.nationality).join('; '),
-        s.passengers.map(p => p.passportNumber).join('; '),
-        s.passengers.map(p => p.contactNumber).join('; '),
+        passengers.length,
+        passengers.map(p => p.fullName).join('; '),
+        passengers.map(p => p.nationality).join('; '),
+        passengers.map(p => p.passportNumber).join('; '),
+        passengers.map(p => p.contactNumber).join('; '),
         s.groupContactName || '',
         s.groupContactNumber || '',
       ];

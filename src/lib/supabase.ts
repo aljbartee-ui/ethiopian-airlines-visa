@@ -54,12 +54,12 @@ export async function getAllApplications() {
   }
 
   try {
-    console.log('Fetching applications list from Supabase (without heavy image data)...');
-    // Fetch only the metadata, excluding the heavy image fields
+    console.log('Fetching applications list from Supabase (metadata only)...');
+    // Fetch ONLY metadata, completely excluding the heavy 'passengers' field which contains all images
     const { data, error } = await retryWithBackoff(async () =>
       supabase
         .from('visa_applications')
-        .select('id, submission_date, status, travel_type, group_contact_name, group_contact_number, transit_airport, destination_airport_code, custom_destination_airport, needs_land_transport, passengers')
+        .select('id, submission_date, status, travel_type, group_contact_name, group_contact_number, transit_airport, destination_airport_code, custom_destination_airport, needs_land_transport')
         .order('submission_date', { ascending: false })
     );
 
@@ -88,19 +88,7 @@ export async function getAllApplications() {
     }
 
     return (data || []).map((app: any) => {
-      let passengers = app.passengers || [];
-      
-      // If still no passengers, create a default empty passenger entry
-      if (passengers.length === 0) {
-        passengers = [{
-          id: crypto.randomUUID(),
-          fullName: 'Applicant',
-          nationality: '',
-          passportNumber: '',
-          contactNumber: '',
-        }];
-      }
-      
+      // Return minimal data for the list view - passengers will be fetched on demand
       return {
         id: app.id,
         submissionDate: app.submission_date,
@@ -112,7 +100,7 @@ export async function getAllApplications() {
         destinationAirportCode: app.destination_airport_code,
         customDestinationAirport: app.custom_destination_airport,
         needsLandTransport: app.needs_land_transport,
-        passengers,
+        passengers: [], // Empty for now, will be fetched on demand
       };
     });
   } catch (err) {
@@ -192,6 +180,35 @@ export async function getApplicationDetails(id: string) {
   } catch (err) {
     console.error('Unexpected error fetching application details:', err);
     return null;
+  }
+}
+
+// Fetch only passenger data for a specific application
+export async function getApplicationPassengers(id: string) {
+  if (!isSupabaseConfigured()) {
+    // Fallback to localStorage
+    const data = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
+    const app = data.find((s: FormData) => s.id === id);
+    return app?.passengers || [];
+  }
+
+  try {
+    console.log(`Fetching passengers for application ${id}...`);
+    const { data, error } = await supabase
+      .from('visa_applications')
+      .select('passengers')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      console.error('Error fetching passengers:', error);
+      return [];
+    }
+
+    return data?.passengers || [];
+  } catch (err) {
+    console.error('Unexpected error fetching passengers:', err);
+    return [];
   }
 }
 
