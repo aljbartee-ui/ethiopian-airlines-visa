@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import type { FormData } from '@/types';
 import { AIRPORT_OPTIONS, DESTINATION_AIRPORTS } from '@/types';
-import { getAllApplications, getApplicationDetails, updateApplicationStatus, deleteApplication, isSupabaseConfigured } from '@/lib/supabase';
+import { getAllApplications, getApplicationDetails, updateApplicationStatus, deleteApplication, isSupabaseConfigured, testSupabaseConnection } from '@/lib/supabase';
 
 const ADMIN_PASSWORD = 'ethiopian2024'; // In production, use proper authentication
 
@@ -174,6 +174,23 @@ export default function AdminDashboard() {
     } catch (error) {
       console.error('Error fetching full details:', error);
       // Continue with the basic submission data if full details fail to load
+    }
+  };
+
+  const handleTestConnection = async () => {
+    try {
+      const result = await testSupabaseConnection();
+      if (result.connected) {
+        toast.success(`Supabase Connected! Found ${result.recordCount} applications.`);
+      } else if (result.tableExists) {
+        toast.warning(`Table exists but no data. Records: ${result.recordCount}`);
+      } else {
+        toast.error(`Connection failed: ${result.error}`);
+      }
+      console.log('Connection test result:', result);
+    } catch (error) {
+      console.error('Connection test error:', error);
+      toast.error('Failed to test connection');
     }
   };
 
@@ -361,6 +378,15 @@ export default function AdminDashboard() {
                 <div className={`w-2 h-2 rounded-full ${isSupabaseConfigured() ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
                 {isSupabaseConfigured() ? 'Cloud Sync' : 'Local Mode'}
               </div>
+              <Button
+                onClick={handleTestConnection}
+                variant="outline"
+                size="sm"
+                className="border-white/20 text-white hover:bg-white/10"
+              >
+                <Plane className="w-4 h-4 mr-2" />
+                Test Connection
+              </Button>
               <Button
                 onClick={exportToCSV}
                 variant="outline"

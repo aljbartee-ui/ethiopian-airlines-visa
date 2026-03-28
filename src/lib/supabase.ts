@@ -301,3 +301,69 @@ export async function deleteApplication(id: string) {
     throw error;
   }
 }
+
+
+// Test Supabase connection and return detailed diagnostic information
+export async function testSupabaseConnection() {
+  const result = {
+    configured: isSupabaseConfigured(),
+    url: supabaseUrl ? 'Set' : 'Not set',
+    key: supabaseKey ? 'Set' : 'Not set',
+    connected: false,
+    tableExists: false,
+    recordCount: 0,
+    error: null as any,
+    details: {} as any
+  };
+
+  if (!result.configured) {
+    result.error = 'Supabase is not configured';
+    return result;
+  }
+
+  try {
+    console.log('Testing Supabase connection...');
+    
+    // Test 1: Try to fetch count
+    const { count, error: countError } = await supabase
+      .from('visa_applications')
+      .select('*', { count: 'exact', head: true });
+
+    if (countError) {
+      result.error = countError.message;
+      result.details = countError;
+      console.error('Count query failed:', countError);
+      return result;
+    }
+
+    result.tableExists = true;
+    result.recordCount = count || 0;
+
+    // Test 2: Try to fetch one record
+    const { data, error: dataError } = await supabase
+      .from('visa_applications')
+      .select('id, submission_date, status')
+      .limit(1);
+
+    if (dataError) {
+      result.error = dataError.message;
+      result.details = dataError;
+      console.error('Data query failed:', dataError);
+      return result;
+    }
+
+    result.connected = true;
+    result.details = {
+      message: `Successfully connected to Supabase. Found ${result.recordCount} total records.`,
+      sampleRecord: data?.[0] || 'No records found'
+    };
+
+    console.log('Supabase connection test successful:', result);
+    return result;
+  } catch (err) {
+    result.error = err instanceof Error ? err.message : 'Unknown error';
+    result.details = err;
+    console.error('Unexpected error during connection test:', err);
+    return result;
+  }
+}
