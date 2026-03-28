@@ -54,11 +54,12 @@ export async function getAllApplications() {
   }
 
   try {
-    console.log('Fetching applications from Supabase...');
+    console.log('Fetching applications list from Supabase (without heavy image data)...');
+    // Fetch only the metadata, excluding the heavy image fields
     const { data, error } = await retryWithBackoff(async () =>
       supabase
         .from('visa_applications')
-        .select('*')
+        .select('id, submission_date, status, travel_type, group_contact_name, group_contact_number, transit_airport, destination_airport_code, custom_destination_airport, needs_land_transport, passengers')
         .order('submission_date', { ascending: false })
     );
 
@@ -81,7 +82,6 @@ export async function getAllApplications() {
     console.log(`Successfully fetched ${data?.length || 0} applications from Supabase`);
 
     // Map snake_case from Supabase to camelCase for the frontend
-    // Also handle backward compatibility for old applications that don't have the passengers array
     if (!data || data.length === 0) {
       console.log('No applications found in Supabase');
       return [];
@@ -89,23 +89,6 @@ export async function getAllApplications() {
 
     return (data || []).map((app: any) => {
       let passengers = app.passengers || [];
-      
-      // Backward compatibility: if no passengers array but old fields exist, reconstruct from old format
-      if (passengers.length === 0 && app.civil_id_file) {
-        passengers = [{
-          id: crypto.randomUUID(),
-          fullName: 'Primary Applicant',
-          nationality: '',
-          passportNumber: '',
-          contactNumber: '',
-          civilIdFile: app.civil_id_file,
-          civilIdFileName: app.civil_id_file_name,
-          passportFile: app.passport_file,
-          passportFileName: app.passport_file_name,
-          photoFile: app.photo_file,
-          photoFileName: app.photo_file_name,
-        }];
-      }
       
       // If still no passengers, create a default empty passenger entry
       if (passengers.length === 0) {
@@ -135,6 +118,80 @@ export async function getAllApplications() {
   } catch (err) {
     console.error('Unexpected error fetching applications:', err);
     return [];
+  }
+}
+
+// Fetch full application details including images (on demand)
+export async function getApplicationDetails(id: string) {
+  if (!isSupabaseConfigured()) {
+    // Fallback to localStorage
+    const data = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
+    return data.find((s: FormData) => s.id === id) || null;
+  }
+
+  try {
+    console.log(`Fetching full details for application ${id}...`);
+    const { data, error } = await supabase
+      .from('visa_applications')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      console.error('Error fetching application details:', error);
+      return null;
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    let passengers = data.passengers || [];
+    
+    // Backward compatibility: if no passengers array but old fields exist, reconstruct from old format
+    if (passengers.length === 0 && data.civil_id_file) {
+      passengers = [{
+        id: crypto.randomUUID(),
+        fullName: 'Primary Applicant',
+        nationality: '',
+        passportNumber: '',
+        contactNumber: '',
+        civilIdFile: data.civil_id_file,
+        civilIdFileName: data.civil_id_file_name,
+        passportFile: data.passport_file,
+        passportFileName: data.passport_file_name,
+        photoFile: data.photo_file,
+        photoFileName: data.photo_file_name,
+      }];
+    }
+    
+    // If still no passengers, create a default empty passenger entry
+    if (passengers.length === 0) {
+      passengers = [{
+        id: crypto.randomUUID(),
+        fullName: 'Applicant',
+        nationality: '',
+        passportNumber: '',
+        contactNumber: '',
+      }];
+    }
+
+    return {
+      id: data.id,
+      submissionDate: data.submission_date,
+      status: data.status,
+      travelType: data.travel_type,
+      groupContactName: data.group_contact_name,
+      groupContactNumber: data.group_contact_number,
+      transitAirport: data.transit_airport,
+      destinationAirportCode: data.destination_airport_code,
+      customDestinationAirport: data.custom_destination_airport,
+      needsLandTransport: data.needs_land_transport,
+      passengers,
+    };
+  } catch (err) {
+    console.error('Unexpected error fetching application details:', err);
+    return null;
   }
 }
 

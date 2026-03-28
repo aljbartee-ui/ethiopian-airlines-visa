@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import type { FormData } from '@/types';
 import { AIRPORT_OPTIONS, DESTINATION_AIRPORTS } from '@/types';
-import { getAllApplications, updateApplicationStatus, deleteApplication, isSupabaseConfigured } from '@/lib/supabase';
+import { getAllApplications, getApplicationDetails, updateApplicationStatus, deleteApplication, isSupabaseConfigured } from '@/lib/supabase';
 
 const ADMIN_PASSWORD = 'ethiopian2024'; // In production, use proper authentication
 
@@ -158,9 +158,23 @@ export default function AdminDashboard() {
     }
   };
 
-  const viewDetails = (submission: FormData) => {
+  const viewDetails = async (submission: FormData) => {
+    // First, set the basic submission data
     setSelectedSubmission(submission);
     setIsDetailOpen(true);
+    
+    // Then fetch full details including images in the background
+    try {
+      console.log('Fetching full application details...');
+      const fullDetails = await getApplicationDetails(submission.id);
+      if (fullDetails) {
+        setSelectedSubmission(fullDetails);
+        console.log('Full application details loaded');
+      }
+    } catch (error) {
+      console.error('Error fetching full details:', error);
+      // Continue with the basic submission data if full details fail to load
+    }
   };
 
   const deleteSubmission = async (id: string) => {
