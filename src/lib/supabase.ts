@@ -19,23 +19,19 @@ export const isSupabaseConfigured = () => {
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Ultra-Light fetch using direct HTTP request to avoid client library overhead
-export async function getAllApplicationsUltraLight() {
+// Get list of application IDs only (no data, just IDs)
+export async function getApplicationIds() {
   if (!isSupabaseConfigured()) {
-    console.log('Supabase not configured, using localStorage fallback');
     const data = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
-    return data.sort((a: FormData, b: FormData) => 
-      new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
-    );
+    return data.map((app: FormData) => app.id);
   }
 
   try {
-    console.log('Fetching applications using Ultra-Light mode (ID and Date only)...');
+    console.log('Fetching application IDs only...');
     
-    // Use direct HTTP fetch to bypass client library overhead
     const response = await Promise.race([
       fetch(
-        `${supabaseUrl}/rest/v1/visa_applications?select=id,submission_date&order=submission_date.desc&limit=100`,
+        `${supabaseUrl}/rest/v1/visa_applications?select=id&order=submission_date.desc&limit=100`,
         {
           headers: {
             'apikey': supabaseKey,
@@ -45,76 +41,68 @@ export async function getAllApplicationsUltraLight() {
         }
       ),
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Ultra-Light fetch timeout')), 15000)
+        setTimeout(() => reject(new Error('ID fetch timeout')), 10000)
       ) as Promise<Response>
     ]);
 
     if (!response.ok) {
-      console.error(`HTTP Error: ${response.status} ${response.statusText}`);
       throw new Error(`HTTP ${response.status}`);
     }
 
     const data = await response.json();
-    console.log(`Successfully fetched ${data?.length || 0} applications in Ultra-Light mode`);
-
-    // Map snake_case to camelCase
-    return (data || []).map((app: any) => ({
-      id: app.id,
-      submissionDate: app.submission_date,
-      status: 'pending' as const,
-      travelType: 'single' as const,
-      groupContactName: '',
-      groupContactNumber: '',
-      transitAirport: '',
-      destinationAirportCode: '',
-      customDestinationAirport: '',
-      needsLandTransport: false,
-      passengers: [], // Will be fetched on demand
-    }));
+    console.log(`Successfully fetched ${data?.length || 0} application IDs`);
+    return (data || []).map((app: any) => app.id);
   } catch (err) {
-    console.error('Ultra-Light fetch failed:', err);
-    // Fallback to localStorage
-    const localData = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
-    return localData.sort((a: FormData, b: FormData) => 
-      new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
-    );
+    console.error('Failed to fetch application IDs:', err);
+    return [];
   }
 }
 
-// Helper function for retry logic with exponential backoff
-const retryWithBackoff = async (fn: () => Promise<any>, maxRetries = 3, initialDelay = 1000) => {
-  let lastError: any;
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await Promise.race([
-        fn(),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Query timeout')), 30000) // 30 second timeout
-        )
-      ]);
-    } catch (error) {
-      lastError = error;
-      if (i < maxRetries - 1) {
-        const delay = initialDelay * Math.pow(2, i);
-        console.log(`Retry attempt ${i + 1} after ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
+// Fetch a single application's metadata (ID, Date only)
+export async function getApplicationMetadata(id: string) {
+  if (!isSupabaseConfigured()) {
+    const data = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
+    const app = data.find((a: FormData) => a.id === id);
+    return app ? { id: app.id, submissionDate: app.submissionDate } : null;
   }
-  throw lastError;
-};
+
+  try {
+    const response = await Promise.race([
+      fetch(
+        `${supabaseUrl}/rest/v1/visa_applications?select=id,submission_date&eq=id.${id}`,
+        {
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Accept': 'application/json',
+          },
+        }
+      ),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Metadata fetch timeout')), 8000)
+      ) as Promise<Response>
+    ]);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (data && data.length > 0) {
+      return {
+        id: data[0].id,
+        submissionDate: data[0].submission_date
+      };
+    }
+    return null;
+  } catch (err) {
+    console.error(`Failed to fetch metadata for ${id}:`, err);
+    return null;
+  }
+}
 
 // Helper functions for visa applications
 export async function getAllApplications() {
-  // Use Ultra-Light mode as primary method
-  const ultraLightData = await getAllApplicationsUltraLight();
-  
-  // If Ultra-Light mode returns data, use it
-  if (ultraLightData.length > 0) {
-    return ultraLightData;
-  }
-
-  // Fallback to regular Supabase query if Ultra-Light returns nothing
   if (!isSupabaseConfigured()) {
     console.log('Supabase not configured, using localStorage fallback');
     const data = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
@@ -124,45 +112,51 @@ export async function getAllApplications() {
   }
 
   try {
-    console.log('Fetching applications list from Supabase (metadata only)...');
-    const { data, error } = await retryWithBackoff(async () =>
-      supabase
-        .from('visa_applications')
-        .select('id, submission_date, status, travel_type, group_contact_name, group_contact_number, transit_airport, destination_airport_code, custom_destination_airport, needs_land_transport')
-        .order('submission_date', { ascending: false })
-        .limit(100)
-    );
-
-    if (error) {
-      console.error('Supabase query error:', error.message);
-      const localData = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
-      return localData.sort((a: FormData, b: FormData) => 
-        new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
-      );
-    }
-
-    console.log(`Successfully fetched ${data?.length || 0} applications from Supabase`);
-
-    if (!data || data.length === 0) {
+    console.log('Fetching applications using Single-Record Recovery mode...');
+    
+    // Step 1: Get all application IDs
+    const ids = await getApplicationIds();
+    console.log(`Found ${ids.length} application IDs`);
+    
+    if (ids.length === 0) {
       return [];
     }
 
-    return (data || []).map((app: any) => ({
-      id: app.id,
-      submissionDate: app.submission_date,
-      status: app.status,
-      travelType: app.travel_type,
-      groupContactName: app.group_contact_name,
-      groupContactNumber: app.group_contact_number,
-      transitAirport: app.transit_airport,
-      destinationAirportCode: app.destination_airport_code,
-      customDestinationAirport: app.custom_destination_airport,
-      needsLandTransport: app.needs_land_transport,
-      passengers: [],
-    }));
+    // Step 2: Fetch metadata for each ID one at a time
+    const applications: FormData[] = [];
+    for (const id of ids) {
+      try {
+        const metadata = await getApplicationMetadata(id);
+        if (metadata) {
+          applications.push({
+            id: metadata.id,
+            submissionDate: metadata.submissionDate,
+            status: 'pending' as const,
+            travelType: 'individual' as const,
+            groupContactName: '',
+            groupContactNumber: '',
+            transitAirport: '',
+            destinationAirportCode: '',
+            customDestinationAirport: '',
+            needsLandTransport: false,
+            passengers: [],
+          });
+        }
+      } catch (err) {
+        console.error(`Failed to fetch metadata for ${id}:`, err);
+        // Continue with the next ID
+      }
+    }
+
+    console.log(`Successfully recovered ${applications.length} applications`);
+    return applications;
   } catch (err) {
-    console.error('Unexpected error fetching applications:', err);
-    return [];
+    console.error('Unexpected error in Single-Record Recovery mode:', err);
+    // Fallback to localStorage
+    const localData = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
+    return localData.sort((a: FormData, b: FormData) => 
+      new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
+    );
   }
 }
 
@@ -375,10 +369,10 @@ export async function testSupabaseConnection() {
   try {
     console.log('Testing Supabase connection...');
     
-    // Test with direct HTTP fetch
+    // Test with direct HTTP fetch - just get IDs
     const response = await Promise.race([
       fetch(
-        `${supabaseUrl}/rest/v1/visa_applications?select=count()&limit=1`,
+        `${supabaseUrl}/rest/v1/visa_applications?select=id&limit=1`,
         {
           headers: {
             'apikey': supabaseKey,
@@ -397,12 +391,10 @@ export async function testSupabaseConnection() {
       return result;
     }
 
-    const data = await response.json();
     result.tableExists = true;
-    result.recordCount = data?.[0]?.count || 0;
     result.connected = true;
     result.details = {
-      message: `Successfully connected to Supabase. Found ${result.recordCount} total records.`,
+      message: `Successfully connected to Supabase.`,
     };
 
     console.log('Supabase connection test successful:', result);
