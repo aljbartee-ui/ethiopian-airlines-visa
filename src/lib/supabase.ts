@@ -19,6 +19,29 @@ export const isSupabaseConfigured = () => {
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Helper function for retry logic with exponential backoff
+const retryWithBackoff = async (fn: () => Promise<any>, maxRetries = 3, initialDelay = 1000) => {
+  let lastError: any;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await Promise.race([
+        fn(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Query timeout')), 30000) // 30 second timeout
+        )
+      ]);
+    } catch (error) {
+      lastError = error;
+      if (i < maxRetries - 1) {
+        const delay = initialDelay * Math.pow(2, i);
+        console.log(`Retry attempt ${i + 1} after ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError;
+};
+
 // Helper functions for visa applications
 export async function getAllApplications() {
   if (!isSupabaseConfigured()) {
@@ -32,19 +55,27 @@ export async function getAllApplications() {
 
   try {
     console.log('Fetching applications from Supabase...');
-    const { data, error } = await supabase
-      .from('visa_applications')
-      .select('*')
-      .order('submission_date', { ascending: false });
+    const { data, error } = await retryWithBackoff(async () =>
+      supabase
+        .from('visa_applications')
+        .select('*')
+        .order('submission_date', { ascending: false })
+    );
 
     if (error) {
       console.error('Supabase query error:', {
         message: error.message,
         code: error.code,
         details: error.details,
-        hint: error.hint
+        hint: error.hint,
+        status: error.status
       });
-      return [];
+      // Fallback to localStorage if Supabase fails
+      console.log('Falling back to localStorage...');
+      const localData = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
+      return localData.sort((a: FormData, b: FormData) => 
+        new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
+      );
     }
 
     console.log(`Successfully fetched ${data?.length || 0} applications from Supabase`);
