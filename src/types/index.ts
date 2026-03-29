@@ -7,10 +7,16 @@ export interface Passenger {
   // Documents (stored as base64)
   civilIdFile?: string;
   civilIdFileName?: string;
+  civilIdFile2?: string;        // Optional second page of Civil ID
+  civilIdFileName2?: string;
   passportFile?: string;
   passportFileName?: string;
   photoFile?: string;
   photoFileName?: string;
+  // Visa status
+  hasVisa?: boolean;            // Passenger already has a Saudi visa
+  visaFile?: string;            // Visa copy (if hasVisa)
+  visaFileName?: string;
 }
 
 export interface FormData {

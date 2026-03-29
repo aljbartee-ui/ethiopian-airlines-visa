@@ -48,10 +48,15 @@ const initialPassenger: Passenger = {
   contactNumber: '',
   civilIdFile: undefined,
   civilIdFileName: undefined,
+  civilIdFile2: undefined,
+  civilIdFileName2: undefined,
   passportFile: undefined,
   passportFileName: undefined,
   photoFile: undefined,
   photoFileName: undefined,
+  hasVisa: false,
+  visaFile: undefined,
+  visaFileName: undefined,
 };
 
 const initialFormData: Omit<FormData, 'id' | 'submissionDate'> = {
@@ -114,7 +119,7 @@ export default function ApplicationForm() {
     }));
   };
 
-  const handleFileUpload = (passengerIndex: number, field: 'civilIdFile' | 'passportFile' | 'photoFile', file: File) => {
+  const handleFileUpload = (passengerIndex: number, field: 'civilIdFile' | 'civilIdFile2' | 'passportFile' | 'photoFile' | 'visaFile', file: File) => {
     if (file.size > 5 * 1024 * 1024) {
       toast.error('File size must be less than 5MB');
       return;
@@ -170,6 +175,11 @@ export default function ApplicationForm() {
       }
       if (!passenger.passportFile) {
         toast.error(`Please upload passport for passenger ${i + 1}`);
+        return;
+      }
+      // White-background photo is required for Ethiopian passengers (unless they already have a visa)
+      if (passenger.nationality === 'Ethiopian' && !passenger.hasVisa && !passenger.photoFile) {
+        toast.error(`A white-background photo is required for Ethiopian passenger ${i + 1}`);
         return;
       }
     }
@@ -744,12 +754,37 @@ export default function ApplicationForm() {
                       <FileText className="w-4 h-4 text-[#FEDD00]" />
                       Documents for {passenger.fullName || `Passenger ${passengerIndex + 1}`}
                     </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      {/* Civil ID Upload */}
+                    {/* ── Has Visa checkbox ─────────────────────────────── */}
+                    <div className="mb-4 flex items-start space-x-3">
+                      <Checkbox
+                        id={`hasVisa-${passengerIndex}`}
+                        checked={!!passenger.hasVisa}
+                        onCheckedChange={(checked) =>
+                          setFormData(prev => ({
+                            ...prev,
+                            passengers: prev.passengers.map((p, i) =>
+                              i === passengerIndex ? { ...p, hasVisa: checked as boolean } : p
+                            ),
+                          }))
+                        }
+                        className="mt-1 border-white/40 data-[state=checked]:bg-[#FEDD00] data-[state=checked]:border-[#FEDD00]"
+                      />
+                      <div>
+                        <Label htmlFor={`hasVisa-${passengerIndex}`} className="text-white font-medium cursor-pointer">
+                          This passenger already has a Saudi transit visa
+                        </Label>
+                        <p className="text-white/50 text-sm mt-0.5">
+                          If selected, the photo upload will not be required.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {/* Civil ID Page 1 */}
                       <div>
                         <Label className="text-white/80 flex items-center gap-1">
                           <CreditCard className="w-4 h-4" />
-                          Kuwait Civil ID *
+                          Kuwait Civil ID (Page 1) *
                         </Label>
                         <div className="mt-2">
                           <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/30 rounded-lg cursor-pointer hover:border-[#FEDD00] hover:bg-[#FEDD00]/5 transition-all duration-300">
@@ -771,6 +806,38 @@ export default function ApplicationForm() {
                               className="hidden"
                               accept="image/*,.pdf"
                               onChange={(e) => e.target.files?.[0] && handleFileUpload(passengerIndex, 'civilIdFile', e.target.files[0])}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Civil ID Page 2 (Optional) */}
+                      <div>
+                        <Label className="text-white/80 flex items-center gap-1">
+                          <CreditCard className="w-4 h-4" />
+                          Kuwait Civil ID (Page 2) <span className="text-white/40 ml-1">(Optional)</span>
+                        </Label>
+                        <div className="mt-2">
+                          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/30 rounded-lg cursor-pointer hover:border-[#FEDD00] hover:bg-[#FEDD00]/5 transition-all duration-300">
+                            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                              {passenger.civilIdFile2 ? (
+                                <>
+                                  <Check className="w-8 h-8 text-green-500 mb-2" />
+                                  <p className="text-xs text-white/60 text-center px-2">{passenger.civilIdFileName2}</p>
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="w-8 h-8 text-white/40 mb-2" />
+                                  <p className="text-xs text-white/40">Click to upload</p>
+                                  <p className="text-xs text-white/30">Back side / page 2</p>
+                                </>
+                              )}
+                            </div>
+                            <input
+                              type="file"
+                              className="hidden"
+                              accept="image/*,.pdf"
+                              onChange={(e) => e.target.files?.[0] && handleFileUpload(passengerIndex, 'civilIdFile2', e.target.files[0])}
                             />
                           </label>
                         </div>
@@ -807,37 +874,90 @@ export default function ApplicationForm() {
                         </div>
                       </div>
 
-                      {/* Photo Upload (Optional) */}
-                      <div>
-                        <Label className="text-white/80 flex items-center gap-1">
-                          <ImageIcon className="w-4 h-4" />
-                          Photo <span className="text-white/40">(Optional)</span>
-                        </Label>
-                        <div className="mt-2">
-                          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/30 rounded-lg cursor-pointer hover:border-[#FEDD00] hover:bg-[#FEDD00]/5 transition-all duration-300">
-                            <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                              {passenger.photoFile ? (
-                                <>
-                                  <Check className="w-8 h-8 text-green-500 mb-2" />
-                                  <p className="text-xs text-white/60 text-center px-2">{passenger.photoFileName}</p>
-                                </>
+                      {/* Photo Upload — required for Ethiopians, optional otherwise, hidden when hasVisa */}
+                      {!passenger.hasVisa && (() => {
+                        const isEthiopian = passenger.nationality === 'Ethiopian';
+                        return (
+                          <div>
+                            <Label className="text-white/80 flex items-center gap-1">
+                              <ImageIcon className="w-4 h-4" />
+                              Photo{' '}
+                              {isEthiopian ? (
+                                <span className="text-red-400 ml-1">* Required</span>
                               ) : (
-                                <>
-                                  <Upload className="w-8 h-8 text-white/40 mb-2" />
-                                  <p className="text-xs text-white/40">White background</p>
-                                  <p className="text-xs text-white/30">Optional</p>
-                                </>
+                                <span className="text-white/40 ml-1">(Optional)</span>
                               )}
+                            </Label>
+                            {isEthiopian && (
+                              <p className="text-xs text-red-400/80 mt-0.5">White background required for Ethiopian nationals</p>
+                            )}
+                            <div className="mt-2">
+                              <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer transition-all duration-300 ${
+                                isEthiopian && !passenger.photoFile
+                                  ? 'border-red-500/50 hover:border-red-400 hover:bg-red-500/5'
+                                  : 'border-white/30 hover:border-[#FEDD00] hover:bg-[#FEDD00]/5'
+                              }`}>
+                                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                  {passenger.photoFile ? (
+                                    <>
+                                      <Check className="w-8 h-8 text-green-500 mb-2" />
+                                      <p className="text-xs text-white/60 text-center px-2">{passenger.photoFileName}</p>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Upload className={`w-8 h-8 mb-2 ${isEthiopian ? 'text-red-400/60' : 'text-white/40'}`} />
+                                      <p className={`text-xs ${isEthiopian ? 'text-red-400/80' : 'text-white/40'}`}>White background</p>
+                                      <p className={`text-xs ${isEthiopian ? 'text-red-400/60' : 'text-white/30'}`}>
+                                        {isEthiopian ? 'Required' : 'Optional'}
+                                      </p>
+                                    </>
+                                  )}
+                                </div>
+                                <input
+                                  type="file"
+                                  className="hidden"
+                                  accept="image/*"
+                                  onChange={(e) => e.target.files?.[0] && handleFileUpload(passengerIndex, 'photoFile', e.target.files[0])}
+                                />
+                              </label>
                             </div>
-                            <input
-                              type="file"
-                              className="hidden"
-                              accept="image/*"
-                              onChange={(e) => e.target.files?.[0] && handleFileUpload(passengerIndex, 'photoFile', e.target.files[0])}
-                            />
-                          </label>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Visa copy — shown only when hasVisa is checked */}
+                      {passenger.hasVisa && (
+                        <div>
+                          <Label className="text-white/80 flex items-center gap-1">
+                            <FileText className="w-4 h-4" />
+                            Visa Copy <span className="text-white/40 ml-1">(Optional)</span>
+                          </Label>
+                          <div className="mt-2">
+                            <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-[#FEDD00]/40 rounded-lg cursor-pointer hover:border-[#FEDD00] hover:bg-[#FEDD00]/5 transition-all duration-300">
+                              <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                {passenger.visaFile ? (
+                                  <>
+                                    <Check className="w-8 h-8 text-green-500 mb-2" />
+                                    <p className="text-xs text-white/60 text-center px-2">{passenger.visaFileName}</p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Upload className="w-8 h-8 text-[#FEDD00]/60 mb-2" />
+                                    <p className="text-xs text-[#FEDD00]/70">Upload visa copy</p>
+                                    <p className="text-xs text-white/30">Optional</p>
+                                  </>
+                                )}
+                              </div>
+                              <input
+                                type="file"
+                                className="hidden"
+                                accept="image/*,.pdf"
+                                onChange={(e) => e.target.files?.[0] && handleFileUpload(passengerIndex, 'visaFile', e.target.files[0])}
+                              />
+                            </label>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </div>
                 ))}
