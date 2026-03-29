@@ -162,19 +162,51 @@ export async function getApplicationsPage(
   }
 
   // ── Supabase paginated query ───────────────────────────────────────────
-  const from = page * pageSize;
-  const to = from + pageSize - 1;
+  // Use limit + offset URL params (not the Range header) to avoid HTTP 416
+  // when requesting a page beyond the last record.
+  const offset = page * pageSize;
+  const ANON_KEY = supabaseKey;
+  const url =
+    `${supabaseUrl}/rest/v1/visa_applications` +
+    `?select=id%2Csubmission_date%2Cstatus%2Ctravel_type%2Cgroup_contact_name%2Cgroup_contact_number%2Ctransit_airport%2Cdestination_airport_code%2Ccustom_destination_airport%2Cneeds_land_transport%2Cpassengers` +
+    `&order=submission_date.desc` +
+    `&limit=${pageSize}` +
+    `&offset=${offset}`;
 
-  const { data, error } = await withRetry(() =>
-    supabase
-      .from('visa_applications')
-      .select(
-        'id,submission_date,status,travel_type,group_contact_name,group_contact_number,transit_airport,destination_airport_code,custom_destination_airport,needs_land_transport,passengers',
-        { count: 'exact' }
-      )
-      .order('submission_date', { ascending: false })
-      .range(from, to) as unknown as Promise<{ data: any[]; error: any; count: number | null }>
-  ) as unknown as { data: any[] | null; error: any; count: number | null };
+  let rawData: any[] | null = null;
+  let rawCount: number | null = null;
+  let fetchError: any = null;
+
+  try {
+    const response = await withTimeout(
+      fetch(url, {
+        headers: {
+          apikey: ANON_KEY,
+          Authorization: `Bearer ${ANON_KEY}`,
+          Accept: 'application/json',
+          Prefer: 'count=exact',
+        },
+      }),
+      15000
+    );
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      fetchError = { message: `HTTP ${response.status}: ${body.slice(0, 200)}`, code: String(response.status) };
+    } else {
+      // Supabase returns total count in Content-Range header: e.g. "0-9/31"
+      const contentRange = response.headers.get('content-range') || '';
+      const match = contentRange.match(/\/(\d+)$/);
+      if (match) rawCount = parseInt(match[1], 10);
+      rawData = await response.json();
+    }
+  } catch (err: any) {
+    fetchError = { message: err?.message || 'Network error', code: 'NETWORK' };
+  }
+
+  const data = rawData;
+  const error = fetchError;
+  const count = rawCount;
 
   if (error) {
     throw new SupabaseFetchError(
@@ -185,12 +217,12 @@ export async function getApplicationsPage(
   }
 
   const items = (data || []).map(mapRow);
-  // Supabase returns the total count alongside the page when count:'exact' is set
-  const total = (data as any)?.count ?? items.length;
+  // Total comes from the Content-Range header parsed above, or fall back to loaded count
+  const total = count ?? (offset + items.length);
   return {
     items,
     total,
-    hasMore: from + items.length < total,
+    hasMore: offset + items.length < total,
   };
 }
 
