@@ -114,7 +114,8 @@ function mapRow(r: any): FormData {
     destinationAirportCode: r.destination_airport_code,
     customDestinationAirport: r.custom_destination_airport,
     needsLandTransport: r.needs_land_transport,
-    passengers: r.passengers || [],
+    // passengers is intentionally omitted from list queries (loaded on demand)
+    passengers: r.passengers ?? [],
   };
 }
 
@@ -168,7 +169,10 @@ export async function getApplicationsPage(
   const ANON_KEY = supabaseKey;
   const url =
     `${supabaseUrl}/rest/v1/visa_applications` +
-    `?select=id%2Csubmission_date%2Cstatus%2Ctravel_type%2Cgroup_contact_name%2Cgroup_contact_number%2Ctransit_airport%2Cdestination_airport_code%2Ccustom_destination_airport%2Cneeds_land_transport%2Cpassengers` +
+    // Deliberately exclude 'passengers' — it contains base64 images and causes
+    // a PostgreSQL statement timeout when fetched for many rows at once.
+    // Full passenger data is loaded on demand via getApplicationDetails().
+    `?select=id%2Csubmission_date%2Cstatus%2Ctravel_type%2Cgroup_contact_name%2Cgroup_contact_number%2Ctransit_airport%2Cdestination_airport_code%2Ccustom_destination_airport%2Cneeds_land_transport` +
     `&order=submission_date.desc` +
     `&limit=${pageSize}` +
     `&offset=${offset}`;
