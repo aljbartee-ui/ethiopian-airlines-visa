@@ -17,7 +17,12 @@ export const isSupabaseConfigured = () => {
   return configured;
 };
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+// Only create the Supabase client if credentials are provided.
+// @supabase/supabase-js v2.100+ throws when called with empty strings,
+// which would crash the entire module and produce a blank page.
+export const supabase = isSupabaseConfigured()
+  ? createClient(supabaseUrl, supabaseKey)
+  : (null as unknown as ReturnType<typeof createClient>);
 
 // Get list of application IDs only (no data, just IDs)
 export async function getApplicationIds() {
