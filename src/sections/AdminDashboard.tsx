@@ -20,7 +20,6 @@ import {
   Search,
   Download,
   ArrowLeft,
-  MapPin,
   Image as ImageIcon,
   Trash2,
   RefreshCw,
