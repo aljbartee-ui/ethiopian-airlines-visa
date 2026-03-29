@@ -11,8 +11,7 @@ export const isSupabaseConfigured = (): boolean => {
   return !!(supabaseUrl && supabaseKey);
 };
 
-// Only create the client when credentials are present — createClient() throws
-// on empty strings in recent versions.
+// Only create the client when credentials are present.
 export const supabase = isSupabaseConfigured()
   ? createClient(supabaseUrl, supabaseKey, {
       global: {
@@ -21,15 +20,14 @@ export const supabase = isSupabaseConfigured()
           Authorization: `Bearer ${supabaseKey}`,
         },
       },
-      // Disable the realtime subscription entirely — we don't use it and it
-      // opens an extra WebSocket connection that can cause connection-refused
-      // errors on paused/free-tier Supabase projects.
+      // Disable realtime WebSocket — not used, causes extra connections on
+      // free-tier / paused projects.
       realtime: { params: { eventsPerSecond: 0 } },
     })
   : (null as unknown as ReturnType<typeof createClient>);
 
 // ---------------------------------------------------------------------------
-// Typed error class so callers can distinguish a Supabase failure from a
+// Typed error class — lets callers distinguish a Supabase failure from a
 // genuine "no records" result.
 // ---------------------------------------------------------------------------
 export class SupabaseFetchError extends Error {
@@ -44,30 +42,30 @@ export class SupabaseFetchError extends Error {
 }
 
 // ---------------------------------------------------------------------------
+// Pagination constants
+// ---------------------------------------------------------------------------
+export const PAGE_SIZE = 10;
+
+// ---------------------------------------------------------------------------
 // Internal helper: retry with exponential back-off.
 // Retries on BOTH thrown exceptions AND Supabase { error } response values.
-// Does NOT retry on definitive errors (401 Unauthorized, 403 Forbidden) —
-// those will never succeed with the same credentials.
+// Skips retries for definitive auth / permission errors.
 // ---------------------------------------------------------------------------
 const NON_RETRYABLE_CODES = new Set(['PGRST301', '42501', 'invalid_api_key']);
 
 async function withRetry<D>(
   fn: () => Promise<{ data: D; error: any }>,
   maxAttempts = 3,
-  baseDelayMs = 1500
+  baseDelayMs = 1000
 ): Promise<{ data: D; error: any }> {
   let lastResult: { data: D; error: any } = { data: null as unknown as D, error: null };
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const result = await fn();
-
       if (result.error) {
         lastResult = result;
-        // Don't retry auth / permission errors
-        if (NON_RETRYABLE_CODES.has(result.error.code)) {
-          return result;
-        }
+        if (NON_RETRYABLE_CODES.has(result.error.code)) return result;
         if (attempt < maxAttempts) {
           const delay = baseDelayMs * 2 ** (attempt - 1);
           console.warn(`Supabase error on attempt ${attempt}/${maxAttempts}, retrying in ${delay}ms…`, result.error.message);
@@ -89,42 +87,10 @@ async function withRetry<D>(
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// Row mapper — converts a raw Supabase row to the app's FormData shape
 // ---------------------------------------------------------------------------
-
-/**
- * Fetch all applications in a single bulk query.
- * Throws SupabaseFetchError on failure so the caller can show an error state.
- * Falls back to localStorage when Supabase is not configured.
- */
-export async function getAllApplications(): Promise<FormData[]> {
-  if (!isSupabaseConfigured()) {
-    const stored = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
-    return stored.sort(
-      (a: FormData, b: FormData) =>
-        new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
-    );
-  }
-
-  const { data, error } = await withRetry(() =>
-    supabase
-      .from('visa_applications')
-      .select(
-        'id,submission_date,status,travel_type,group_contact_name,group_contact_number,transit_airport,destination_airport_code,custom_destination_airport,needs_land_transport,passengers'
-      )
-      .order('submission_date', { ascending: false })
-      .limit(500) as unknown as Promise<{ data: any[]; error: any }>
-  );
-
-  if (error) {
-    throw new SupabaseFetchError(
-      error.message || 'Failed to fetch applications',
-      error.code || '',
-      error.details || ''
-    );
-  }
-
-  return (data || []).map((r: any) => ({
+function mapRow(r: any): FormData {
+  return {
     id: r.id,
     submissionDate: r.submission_date,
     status: r.status,
@@ -136,7 +102,83 @@ export async function getAllApplications(): Promise<FormData[]> {
     customDestinationAirport: r.custom_destination_airport,
     needsLandTransport: r.needs_land_transport,
     passengers: r.passengers || [],
-  }));
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Public API — Paginated lazy loading
+// ---------------------------------------------------------------------------
+
+/**
+ * Result shape returned by getApplicationsPage().
+ */
+export interface ApplicationsPage {
+  /** Records for this page */
+  items: FormData[];
+  /** Total number of records matching the current filters (for "X of Y" display) */
+  total: number;
+  /** True when there are more pages to load */
+  hasMore: boolean;
+}
+
+/**
+ * Fetch a single page of applications.
+ *
+ * @param page  0-based page index
+ * @param pageSize  Number of records per page (default: PAGE_SIZE = 10)
+ *
+ * Throws SupabaseFetchError on failure so the caller can show an error state.
+ * Falls back to localStorage when Supabase is not configured.
+ */
+export async function getApplicationsPage(
+  page = 0,
+  pageSize = PAGE_SIZE
+): Promise<ApplicationsPage> {
+  // ── localStorage fallback ──────────────────────────────────────────────
+  if (!isSupabaseConfigured()) {
+    const all: FormData[] = JSON.parse(localStorage.getItem('visaSubmissions') || '[]')
+      .sort((a: FormData, b: FormData) =>
+        new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
+      );
+    const start = page * pageSize;
+    return {
+      items: all.slice(start, start + pageSize),
+      total: all.length,
+      hasMore: start + pageSize < all.length,
+    };
+  }
+
+  // ── Supabase paginated query ───────────────────────────────────────────
+  const from = page * pageSize;
+  const to = from + pageSize - 1;
+
+  const { data, error } = await withRetry(() =>
+    supabase
+      .from('visa_applications')
+      .select(
+        'id,submission_date,status,travel_type,group_contact_name,group_contact_number,transit_airport,destination_airport_code,custom_destination_airport,needs_land_transport,passengers',
+        { count: 'exact' }
+      )
+      .order('submission_date', { ascending: false })
+      .range(from, to) as unknown as Promise<{ data: any[]; error: any; count: number | null }>
+  ) as unknown as { data: any[] | null; error: any; count: number | null };
+
+  if (error) {
+    throw new SupabaseFetchError(
+      error.message || 'Failed to fetch applications',
+      error.code || '',
+      error.details || ''
+    );
+  }
+
+  const items = (data || []).map(mapRow);
+  // Supabase returns the total count alongside the page when count:'exact' is set
+  const total = (data as any)?.count ?? items.length;
+  return {
+    items,
+    total,
+    hasMore: from + items.length < total,
+  };
 }
 
 /** Fetch full application details including images (on demand). */
