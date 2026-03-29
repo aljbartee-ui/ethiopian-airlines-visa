@@ -67,6 +67,7 @@ export default function AdminDashboard() {
   const [selectedSubmission, setSelectedSubmission] = useState<FormData | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [directionFilter, setDirectionFilter] = useState<string>('all');
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [viewingDocument, setViewingDocument] = useState<{type: string, url: string, name: string} | null>(null);
 
@@ -92,7 +93,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     filterSubmissions();
-  }, [submissions, searchTerm, statusFilter]);
+  }, [submissions, searchTerm, statusFilter, directionFilter]);
 
   const loadSubmissions = async () => {
     try {
@@ -121,6 +122,10 @@ export default function AdminDashboard() {
     
     if (statusFilter !== 'all') {
       filtered = filtered.filter(s => s.status === statusFilter);
+    }
+
+    if (directionFilter !== 'all') {
+      filtered = filtered.filter(s => getTripDirection(s.destinationAirportCode).type === directionFilter);
     }
     
     setFilteredSubmissions(filtered);
@@ -443,7 +448,7 @@ export default function AdminDashboard() {
               className="pl-10 bg-[#2a2a2a] border-white/20 text-white placeholder:text-white/40"
             />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Filter className="w-4 h-4 text-white/40" />
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[150px] bg-[#2a2a2a] border-white/20 text-white">
@@ -460,6 +465,16 @@ export default function AdminDashboard() {
                     {label}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+            <Select value={directionFilter} onValueChange={setDirectionFilter}>
+              <SelectTrigger className="w-[170px] bg-[#2a2a2a] border-white/20 text-white">
+                <SelectValue placeholder="Filter by direction" />
+              </SelectTrigger>
+              <SelectContent className="bg-[#2a2a2a] border-white/20">
+                <SelectItem value="all" className="text-white hover:bg-white/10">All Directions</SelectItem>
+                <SelectItem value="inbound" className="text-blue-400 hover:bg-white/10">Inbound (Coming)</SelectItem>
+                <SelectItem value="outbound" className="text-purple-400 hover:bg-white/10">Outbound (Leaving)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -496,6 +511,14 @@ export default function AdminDashboard() {
                         >
                           {STATUS_LABELS[submission.status]}
                         </Badge>
+                        {(() => {
+                          const dir = getTripDirection(submission.destinationAirportCode);
+                          return (
+                            <Badge variant="outline" className={dir.color}>
+                              {dir.label}
+                            </Badge>
+                          );
+                        })()}
                         <span className="text-white/40 text-sm">
                           {new Date(submission.submissionDate).toLocaleDateString()}
                         </span>
