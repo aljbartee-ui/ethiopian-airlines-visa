@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import type { FormData } from '@/types';
 import { AIRPORT_OPTIONS, DESTINATION_AIRPORTS } from '@/types';
-import { getAllApplications, getApplicationDetails, updateApplicationStatus, deleteApplication, isSupabaseConfigured } from '@/lib/supabase';
+import { getAllApplications, getApplicationDetails, updateApplicationStatus, deleteApplication, isSupabaseConfigured, SupabaseFetchError } from '@/lib/supabase';
 
 const ADMIN_PASSWORD = 'ethiopian2024'; // In production, use proper authentication
 
@@ -71,6 +71,7 @@ export default function AdminDashboard() {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [viewingDocument, setViewingDocument] = useState<{type: string, url: string, name: string} | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   // Ref prevents a second concurrent fetch from starting while one is in-flight
   const fetchingRef = useRef(false);
 
@@ -93,12 +94,21 @@ export default function AdminDashboard() {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
     setIsLoading(true);
+    setFetchError(null);
     try {
       const data = await getAllApplications();
       setSubmissions(data);
     } catch (error) {
-      console.error('Error loading submissions:', error);
-      toast.error('Failed to load applications');
+      if (error instanceof SupabaseFetchError) {
+        const msg = error.message.includes('Failed to fetch')
+          ? 'Cannot reach the database. The Supabase project may be paused or the API key is missing. Check your Render environment variables (VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY).'
+          : error.message;
+        setFetchError(msg);
+        console.error('Supabase fetch error:', error.message, error.code);
+      } else {
+        setFetchError('An unexpected error occurred while loading applications.');
+        console.error('Error loading submissions:', error);
+      }
     } finally {
       fetchingRef.current = false;
       setIsLoading(false);
@@ -473,6 +483,23 @@ export default function AdminDashboard() {
             <CardContent className="p-12 text-center">
               <div className="w-8 h-8 border-2 border-[#FEDD00]/40 border-t-[#FEDD00] rounded-full animate-spin mx-auto mb-4" />
               <p className="text-white/50">Loading applications...</p>
+            </CardContent>
+          </Card>
+        ) : fetchError ? (
+          <Card className="bg-[#2a2a2a] border-red-500/30">
+            <CardContent className="p-12 text-center">
+              <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+                <X className="w-6 h-6 text-red-400" />
+              </div>
+              <p className="text-red-400 font-semibold mb-2">Failed to load applications</p>
+              <p className="text-white/40 text-sm mb-6 max-w-md mx-auto">{fetchError}</p>
+              <Button
+                onClick={loadSubmissions}
+                variant="outline"
+                className="border-[#FEDD00]/40 text-[#FEDD00] hover:bg-[#FEDD00]/10"
+              >
+                Retry
+              </Button>
             </CardContent>
           </Card>
         ) : filteredSubmissions.length === 0 ? (

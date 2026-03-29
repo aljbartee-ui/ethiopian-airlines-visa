@@ -1,23 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 import type { FormData } from '@/types';
 
-// Get these from your Supabase project dashboard
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-// Check if Supabase is configured
-export const isSupabaseConfigured = () => {
-  const configured = !!(supabaseUrl && supabaseKey);
-  if (!configured) {
-    console.warn('Supabase is not configured. Missing environment variables:', {
-      hasUrl: !!supabaseUrl,
-      hasKey: !!supabaseKey,
-    });
-  }
-  return configured;
+export const isSupabaseConfigured = (): boolean => {
+  return !!(supabaseUrl && supabaseKey);
 };
 
-// Only create the Supabase client if credentials are provided.
+// Only create the client when credentials are present — createClient() throws
+// on empty strings in recent versions.
 export const supabase = isSupabaseConfigured()
   ? createClient(supabaseUrl, supabaseKey, {
       global: {
@@ -26,14 +21,36 @@ export const supabase = isSupabaseConfigured()
           Authorization: `Bearer ${supabaseKey}`,
         },
       },
+      // Disable the realtime subscription entirely — we don't use it and it
+      // opens an extra WebSocket connection that can cause connection-refused
+      // errors on paused/free-tier Supabase projects.
+      realtime: { params: { eventsPerSecond: 0 } },
     })
   : (null as unknown as ReturnType<typeof createClient>);
 
 // ---------------------------------------------------------------------------
-// Internal helper: retry with exponential back-off.
-// Handles BOTH thrown exceptions AND Supabase { error } response values so
-// transient 522/503 errors are recovered automatically.
+// Typed error class so callers can distinguish a Supabase failure from a
+// genuine "no records" result.
 // ---------------------------------------------------------------------------
+export class SupabaseFetchError extends Error {
+  readonly code: string;
+  readonly details: string;
+  constructor(message: string, code = '', details = '') {
+    super(message);
+    this.name = 'SupabaseFetchError';
+    this.code = code;
+    this.details = details;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Internal helper: retry with exponential back-off.
+// Retries on BOTH thrown exceptions AND Supabase { error } response values.
+// Does NOT retry on definitive errors (401 Unauthorized, 403 Forbidden) —
+// those will never succeed with the same credentials.
+// ---------------------------------------------------------------------------
+const NON_RETRYABLE_CODES = new Set(['PGRST301', '42501', 'invalid_api_key']);
+
 async function withRetry<D>(
   fn: () => Promise<{ data: D; error: any }>,
   maxAttempts = 3,
@@ -44,23 +61,27 @@ async function withRetry<D>(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const result = await fn();
-      // If Supabase returned an error value (not a thrown exception), retry too
+
       if (result.error) {
         lastResult = result;
+        // Don't retry auth / permission errors
+        if (NON_RETRYABLE_CODES.has(result.error.code)) {
+          return result;
+        }
         if (attempt < maxAttempts) {
           const delay = baseDelayMs * 2 ** (attempt - 1);
-          console.warn(`Supabase error on attempt ${attempt}, retrying in ${delay}ms…`, result.error);
-          await new Promise((resolve) => setTimeout(resolve, delay));
+          console.warn(`Supabase error on attempt ${attempt}/${maxAttempts}, retrying in ${delay}ms…`, result.error.message);
+          await new Promise((r) => setTimeout(r, delay));
           continue;
         }
       }
       return result;
-    } catch (err) {
+    } catch (err: any) {
       lastResult = { data: null as unknown as D, error: err };
       if (attempt < maxAttempts) {
         const delay = baseDelayMs * 2 ** (attempt - 1);
-        console.warn(`Fetch exception on attempt ${attempt}, retrying in ${delay}ms…`, err);
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        console.warn(`Network error on attempt ${attempt}/${maxAttempts}, retrying in ${delay}ms…`, err?.message ?? err);
+        await new Promise((r) => setTimeout(r, delay));
       }
     }
   }
@@ -72,7 +93,9 @@ async function withRetry<D>(
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch all applications in a single bulk query with automatic retry.
+ * Fetch all applications in a single bulk query.
+ * Throws SupabaseFetchError on failure so the caller can show an error state.
+ * Falls back to localStorage when Supabase is not configured.
  */
 export async function getAllApplications(): Promise<FormData[]> {
   if (!isSupabaseConfigured()) {
@@ -94,15 +117,14 @@ export async function getAllApplications(): Promise<FormData[]> {
   );
 
   if (error) {
-    console.error('Error fetching applications:', error);
-    const stored = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
-    return stored.sort(
-      (a: FormData, b: FormData) =>
-        new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
+    throw new SupabaseFetchError(
+      error.message || 'Failed to fetch applications',
+      error.code || '',
+      error.details || ''
     );
   }
 
-  const applications: FormData[] = (data || []).map((r: any) => ({
+  return (data || []).map((r: any) => ({
     id: r.id,
     submissionDate: r.submission_date,
     status: r.status,
@@ -115,12 +137,9 @@ export async function getAllApplications(): Promise<FormData[]> {
     needsLandTransport: r.needs_land_transport,
     passengers: r.passengers || [],
   }));
-
-  console.log(`Successfully fetched ${applications.length} applications`);
-  return applications;
 }
 
-// Fetch full application details including images (on demand)
+/** Fetch full application details including images (on demand). */
 export async function getApplicationDetails(id: string): Promise<FormData | null> {
   if (!isSupabaseConfigured()) {
     const stored = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
