@@ -71,23 +71,23 @@ export default function AdminDashboard() {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [viewingDocument, setViewingDocument] = useState<{type: string, url: string, name: string} | null>(null);
 
+  // On mount: restore session and do the initial load
   useEffect(() => {
-    // Check if already authenticated
     const authStatus = sessionStorage.getItem('adminAuthenticated');
     if (authStatus === 'true') {
       setIsAuthenticated(true);
     }
-    
-    // Load submissions
     loadSubmissions();
-    
-    // Refresh every 10 seconds to see new submissions from other users
+  }, []);
+
+  // Once authenticated, poll every 30 seconds for new submissions
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
     const interval = setInterval(() => {
-      if (isAuthenticated) {
-        loadSubmissions();
-      }
-    }, 10000);
-    
+      loadSubmissions();
+    }, 30000);
+
     return () => clearInterval(interval);
   }, [isAuthenticated]);
 
@@ -303,6 +303,7 @@ export default function AdminDashboard() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter admin password"
                   className="bg-[#1a1a1a] border-white/20 text-white placeholder:text-white/40"
+                  autoComplete="current-password"
                   required
                 />
               </div>
