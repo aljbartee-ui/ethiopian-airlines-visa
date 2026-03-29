@@ -53,16 +53,29 @@ export const PAGE_SIZE = 10;
 // ---------------------------------------------------------------------------
 const NON_RETRYABLE_CODES = new Set(['PGRST301', '42501', 'invalid_api_key']);
 
+// Wrap a Supabase query with a timeout so hung connections (e.g. HTTP 521)
+// fail fast instead of spinning for 60+ seconds.
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Request timed out after ${ms}ms`)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
 async function withRetry<D>(
   fn: () => Promise<{ data: D; error: any }>,
   maxAttempts = 3,
-  baseDelayMs = 1000
+  baseDelayMs = 1000,
+  timeoutMs = 15000
 ): Promise<{ data: D; error: any }> {
   let lastResult: { data: D; error: any } = { data: null as unknown as D, error: null };
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const result = await fn();
+      const result = await withTimeout(fn(), timeoutMs);
       if (result.error) {
         lastResult = result;
         if (NON_RETRYABLE_CODES.has(result.error.code)) return result;
