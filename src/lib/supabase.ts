@@ -295,9 +295,9 @@ export async function testSupabaseConnection() {
   try {
     console.log('Testing Supabase connection...');
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('visa_applications')
-      .select('id', { count: 'exact', head: false })
+      .select('id', { count: 'exact', head: true })
       .limit(1);
 
     if (error) {
