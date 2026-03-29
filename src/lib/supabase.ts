@@ -21,31 +21,44 @@ export const isSupabaseConfigured = () => {
 // @supabase/supabase-js v2.100+ throws when called with empty strings,
 // which would crash the entire module and produce a blank page.
 export const supabase = isSupabaseConfigured()
-  ? createClient(supabaseUrl, supabaseKey)
+  ? createClient(supabaseUrl, supabaseKey, {
+      global: {
+        // Ensure the anon key is always sent as both apikey and Authorization.
+        // This is the standard Supabase REST auth pattern and satisfies CORS
+        // preflight checks from any origin (Supabase allows all origins by default).
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+        },
+      },
+    })
   : (null as unknown as ReturnType<typeof createClient>);
 
 // ---------------------------------------------------------------------------
-// Internal helper: raw fetch wrapper
-// The Supabase JS client routes requests through its own PostgREST layer which
-// can trigger RLS policies differently from a direct REST call.  Using a plain
-// fetch with the anon key as both `apikey` and `Authorization` header matches
-// exactly what the original working ID-fetch was doing and avoids the HTTP 500
-// errors produced by the JS client's SELECT path.
+// Internal helper: retry wrapper with exponential back-off
+// Supabase (via Cloudflare) occasionally returns HTTP 522 (Connection Timed
+// Out) during transient infrastructure hiccups. Retrying with back-off
+// recovers from these without showing errors to the user.
 // ---------------------------------------------------------------------------
-async function supabaseFetch(path: string): Promise<any[]> {
-  const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
-    headers: {
-      apikey: supabaseKey,
-      Authorization: `Bearer ${supabaseKey}`,
-      Accept: 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxAttempts = 3,
+  baseDelayMs = 1000
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts) {
+        const delay = baseDelayMs * 2 ** (attempt - 1); // 1s, 2s, 4s …
+        console.warn(`Attempt ${attempt} failed, retrying in ${delay}ms…`, err);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
   }
-
-  return response.json();
+  throw lastError;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,10 +66,9 @@ async function supabaseFetch(path: string): Promise<any[]> {
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch all applications in a single bulk query.
- * Uses a raw fetch so that the request is identical to the previously-working
- * ID-only fetch, bypassing any RLS/PostgREST behaviour that caused HTTP 500s
- * when going through the Supabase JS client.
+ * Fetch all applications in a single bulk query with automatic retry.
+ * Uses the Supabase JS client which correctly sets CORS-compatible headers
+ * and handles the PostgREST protocol details.
  */
 export async function getAllApplications(): Promise<FormData[]> {
   if (!isSupabaseConfigured()) {
@@ -71,25 +83,26 @@ export async function getAllApplications(): Promise<FormData[]> {
   try {
     console.log('Fetching all applications...');
 
-    const cols = [
-      'id',
-      'submission_date',
-      'status',
-      'travel_type',
-      'group_contact_name',
-      'group_contact_number',
-      'transit_airport',
-      'destination_airport_code',
-      'custom_destination_airport',
-      'needs_land_transport',
-      'passengers',
-    ].join(',');
+    const { data, error } = await withRetry(() =>
+      supabase
+        .from('visa_applications')
+        .select(
+          'id, submission_date, status, travel_type, group_contact_name, group_contact_number, transit_airport, destination_airport_code, custom_destination_airport, needs_land_transport, passengers'
+        )
+        .order('submission_date', { ascending: false })
+        .limit(500) as unknown as Promise<{ data: any[]; error: any }>
+    ) as { data: any[]; error: any };
 
-    const rows = await supabaseFetch(
-      `visa_applications?select=${cols}&order=submission_date.desc&limit=500`
-    );
+    if (error) {
+      console.error('Error fetching applications:', error);
+      const stored = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
+      return stored.sort(
+        (a: FormData, b: FormData) =>
+          new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
+      );
+    }
 
-    const applications: FormData[] = rows.map((r: any) => ({
+    const applications: FormData[] = (data || []).map((r: any) => ({
       id: r.id,
       submissionDate: r.submission_date,
       status: r.status,
@@ -106,7 +119,7 @@ export async function getAllApplications(): Promise<FormData[]> {
     console.log(`Successfully fetched ${applications.length} applications`);
     return applications;
   } catch (err) {
-    console.error('Error fetching applications:', err);
+    console.error('Error fetching applications after retries:', err);
     const stored = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
     return stored.sort(
       (a: FormData, b: FormData) =>
@@ -125,11 +138,21 @@ export async function getApplicationDetails(id: string): Promise<FormData | null
   try {
     console.log(`Fetching full details for application ${id}...`);
 
-    const rows = await supabaseFetch(`visa_applications?select=*&id=eq.${id}`);
+    const { data, error } = await withRetry(() =>
+      supabase
+        .from('visa_applications')
+        .select('*')
+        .eq('id', id)
+        .single() as unknown as Promise<{ data: any; error: any }>
+    ) as { data: any; error: any };
 
-    if (!rows || rows.length === 0) return null;
+    if (error) {
+      console.error('Error fetching application details:', error);
+      return null;
+    }
 
-    const data = rows[0];
+    if (!data) return null;
+
     let passengers = data.passengers || [];
 
     // Backward compatibility: reconstruct from old single-passenger format
