@@ -7,11 +7,11 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 // Check if Supabase is configured
 export const isSupabaseConfigured = () => {
-  const configured = supabaseUrl && supabaseKey;
+  const configured = !!(supabaseUrl && supabaseKey);
   if (!configured) {
     console.warn('Supabase is not configured. Missing environment variables:', {
       hasUrl: !!supabaseUrl,
-      hasKey: !!supabaseKey
+      hasKey: !!supabaseKey,
     });
   }
   return configured;
@@ -24,44 +24,72 @@ export const supabase = isSupabaseConfigured()
   ? createClient(supabaseUrl, supabaseKey)
   : (null as unknown as ReturnType<typeof createClient>);
 
-// Helper functions for visa applications
+// ---------------------------------------------------------------------------
+// Internal helper: raw fetch wrapper
+// The Supabase JS client routes requests through its own PostgREST layer which
+// can trigger RLS policies differently from a direct REST call.  Using a plain
+// fetch with the anon key as both `apikey` and `Authorization` header matches
+// exactly what the original working ID-fetch was doing and avoids the HTTP 500
+// errors produced by the JS client's SELECT path.
+// ---------------------------------------------------------------------------
+async function supabaseFetch(path: string): Promise<any[]> {
+  const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
+    headers: {
+      apikey: supabaseKey,
+      Authorization: `Bearer ${supabaseKey}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 /**
  * Fetch all applications in a single bulk query.
- * Previously this used a two-step "Single-Record Recovery" pattern that fired
- * one HTTP request per record (N+1 problem), causing cascading timeouts and
- * HTTP 500 errors from Supabase. Now we issue one SELECT for all rows.
+ * Uses a raw fetch so that the request is identical to the previously-working
+ * ID-only fetch, bypassing any RLS/PostgREST behaviour that caused HTTP 500s
+ * when going through the Supabase JS client.
  */
 export async function getAllApplications(): Promise<FormData[]> {
   if (!isSupabaseConfigured()) {
     console.log('Supabase not configured, using localStorage fallback');
-    const data = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
-    return data.sort((a: FormData, b: FormData) =>
-      new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
+    const stored = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
+    return stored.sort(
+      (a: FormData, b: FormData) =>
+        new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
     );
   }
 
   try {
-    console.log('Fetching all applications in a single bulk query...');
+    console.log('Fetching all applications...');
 
-    const { data, error } = await supabase
-      .from('visa_applications')
-      .select(
-        'id, submission_date, status, travel_type, group_contact_name, group_contact_number, transit_airport, destination_airport_code, custom_destination_airport, needs_land_transport, passengers'
-      )
-      .order('submission_date', { ascending: false })
-      .limit(500);
+    const cols = [
+      'id',
+      'submission_date',
+      'status',
+      'travel_type',
+      'group_contact_name',
+      'group_contact_number',
+      'transit_airport',
+      'destination_airport_code',
+      'custom_destination_airport',
+      'needs_land_transport',
+      'passengers',
+    ].join(',');
 
-    if (error) {
-      console.error('Error fetching applications:', error);
-      // Fallback to localStorage on error
-      const localData = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
-      return localData.sort((a: FormData, b: FormData) =>
-        new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
-      );
-    }
+    const rows = await supabaseFetch(
+      `visa_applications?select=${cols}&order=submission_date.desc&limit=500`
+    );
 
-    const applications: FormData[] = (data || []).map((r: any) => ({
+    const applications: FormData[] = rows.map((r: any) => ({
       id: r.id,
       submissionDate: r.submission_date,
       status: r.status,
@@ -78,41 +106,33 @@ export async function getAllApplications(): Promise<FormData[]> {
     console.log(`Successfully fetched ${applications.length} applications`);
     return applications;
   } catch (err) {
-    console.error('Unexpected error fetching applications:', err);
-    const localData = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
-    return localData.sort((a: FormData, b: FormData) =>
-      new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
+    console.error('Error fetching applications:', err);
+    const stored = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
+    return stored.sort(
+      (a: FormData, b: FormData) =>
+        new Date(b.submissionDate).getTime() - new Date(a.submissionDate).getTime()
     );
   }
 }
 
 // Fetch full application details including images (on demand)
-export async function getApplicationDetails(id: string) {
+export async function getApplicationDetails(id: string): Promise<FormData | null> {
   if (!isSupabaseConfigured()) {
-    const data = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
-    return data.find((s: FormData) => s.id === id) || null;
+    const stored = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
+    return stored.find((s: FormData) => s.id === id) || null;
   }
 
   try {
     console.log(`Fetching full details for application ${id}...`);
-    const { data, error } = await supabase
-      .from('visa_applications')
-      .select('*')
-      .eq('id', id)
-      .single();
 
-    if (error) {
-      console.error('Error fetching application details:', error);
-      return null;
-    }
+    const rows = await supabaseFetch(`visa_applications?select=*&id=eq.${id}`);
 
-    if (!data) {
-      return null;
-    }
+    if (!rows || rows.length === 0) return null;
 
+    const data = rows[0];
     let passengers = data.passengers || [];
 
-    // Backward compatibility: if no passengers array but old fields exist, reconstruct from old format
+    // Backward compatibility: reconstruct from old single-passenger format
     if (passengers.length === 0 && data.civil_id_file) {
       passengers = [{
         id: crypto.randomUUID(),
@@ -129,7 +149,6 @@ export async function getApplicationDetails(id: string) {
       }];
     }
 
-    // If still no passengers, create a default empty passenger entry
     if (passengers.length === 0) {
       passengers = [{
         id: crypto.randomUUID(),
@@ -159,35 +178,9 @@ export async function getApplicationDetails(id: string) {
   }
 }
 
-// Fetch only passenger data for a specific application
-export async function getApplicationPassengers(id: string) {
-  if (!isSupabaseConfigured()) {
-    const data = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
-    const app = data.find((s: FormData) => s.id === id);
-    return app?.passengers || [];
-  }
-
-  try {
-    console.log(`Fetching passengers for application ${id}...`);
-    const { data, error } = await supabase
-      .from('visa_applications')
-      .select('passengers')
-      .eq('id', id)
-      .single();
-
-    if (error) {
-      console.error('Error fetching passengers:', error);
-      return [];
-    }
-
-    return data?.passengers || [];
-  } catch (err) {
-    console.error('Unexpected error fetching passengers:', err);
-    return [];
-  }
-}
-
-export async function createApplication(application: Omit<FormData, 'id' | 'submissionDate'>) {
+export async function createApplication(
+  application: Omit<FormData, 'id' | 'submissionDate'>
+): Promise<FormData> {
   if (!isSupabaseConfigured()) {
     console.log('Supabase not configured, saving to localStorage');
     const existing = JSON.parse(localStorage.getItem('visaSubmissions') || '[]');
@@ -219,11 +212,7 @@ export async function createApplication(application: Omit<FormData, 'id' | 'subm
       .single();
 
     if (error) {
-      console.error('Error creating application:', {
-        message: error.message,
-        code: error.code,
-        details: error.details
-      });
+      console.error('Error creating application:', error);
       throw error;
     }
     console.log('Application created successfully');
@@ -271,50 +260,5 @@ export async function deleteApplication(id: string) {
   if (error) {
     console.error('Error deleting application:', error);
     throw error;
-  }
-}
-
-// Test Supabase connection and return detailed diagnostic information
-export async function testSupabaseConnection() {
-  const result = {
-    configured: isSupabaseConfigured(),
-    url: supabaseUrl ? 'Set' : 'Not set',
-    key: supabaseKey ? 'Set' : 'Not set',
-    connected: false,
-    tableExists: false,
-    recordCount: 0,
-    error: null as any,
-    details: {} as any
-  };
-
-  if (!result.configured) {
-    result.error = 'Supabase is not configured';
-    return result;
-  }
-
-  try {
-    console.log('Testing Supabase connection...');
-
-    const { error } = await supabase
-      .from('visa_applications')
-      .select('id', { count: 'exact', head: true })
-      .limit(1);
-
-    if (error) {
-      result.error = error.message;
-      return result;
-    }
-
-    result.tableExists = true;
-    result.connected = true;
-    result.details = { message: 'Successfully connected to Supabase.' };
-
-    console.log('Supabase connection test successful:', result);
-    return result;
-  } catch (err) {
-    result.error = err instanceof Error ? err.message : 'Unknown error';
-    result.details = err;
-    console.error('Unexpected error during connection test:', err);
-    return result;
   }
 }
