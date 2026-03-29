@@ -74,7 +74,7 @@ export async function getApplicationMetadata(id: string) {
   try {
     const response = await Promise.race([
       fetch(
-        `${supabaseUrl}/rest/v1/visa_applications?select=id,submission_date&eq=id.${id}`,
+        `${supabaseUrl}/rest/v1/visa_applications?select=id,submission_date,status,travel_type,group_contact_name,group_contact_number,transit_airport,destination_airport_code,custom_destination_airport,needs_land_transport,passengers&id=eq.${id}`,
         {
           headers: {
             'apikey': supabaseKey,
@@ -94,9 +94,19 @@ export async function getApplicationMetadata(id: string) {
 
     const data = await response.json();
     if (data && data.length > 0) {
+      const r = data[0];
       return {
-        id: data[0].id,
-        submissionDate: data[0].submission_date
+        id: r.id,
+        submissionDate: r.submission_date,
+        status: r.status,
+        travelType: r.travel_type,
+        groupContactName: r.group_contact_name,
+        groupContactNumber: r.group_contact_number,
+        transitAirport: r.transit_airport,
+        destinationAirportCode: r.destination_airport_code,
+        customDestinationAirport: r.custom_destination_airport,
+        needsLandTransport: r.needs_land_transport,
+        passengers: r.passengers || [],
       };
     }
     return null;
@@ -127,25 +137,13 @@ export async function getAllApplications() {
       return [];
     }
 
-    // Step 2: Fetch metadata for each ID one at a time
+    // Step 2: Fetch full data for each ID one at a time
     const applications: FormData[] = [];
     for (const id of ids) {
       try {
         const metadata = await getApplicationMetadata(id);
         if (metadata) {
-          applications.push({
-            id: metadata.id,
-            submissionDate: metadata.submissionDate,
-            status: 'pending' as const,
-            travelType: 'individual' as const,
-            groupContactName: '',
-            groupContactNumber: '',
-            transitAirport: '',
-            destinationAirportCode: '',
-            customDestinationAirport: '',
-            needsLandTransport: false,
-            passengers: [],
-          });
+          applications.push(metadata as FormData);
         }
       } catch (err) {
         console.error(`Failed to fetch metadata for ${id}:`, err);
