@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -70,38 +70,38 @@ export default function AdminDashboard() {
   const [directionFilter, setDirectionFilter] = useState<string>('all');
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [viewingDocument, setViewingDocument] = useState<{type: string, url: string, name: string} | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  // Ref prevents a second concurrent fetch from starting while one is in-flight
+  const fetchingRef = useRef(false);
 
-  // On mount: restore session and do the initial load
+  // On mount: restore session, then load once
   useEffect(() => {
     const authStatus = sessionStorage.getItem('adminAuthenticated');
     if (authStatus === 'true') {
       setIsAuthenticated(true);
     }
+    // Single initial load — no polling loop
     loadSubmissions();
   }, []);
-
-  // Once authenticated, poll every 30 seconds for new submissions
-  useEffect(() => {
-    if (!isAuthenticated) return;
-
-    const interval = setInterval(() => {
-      loadSubmissions();
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [isAuthenticated]);
 
   useEffect(() => {
     filterSubmissions();
   }, [submissions, searchTerm, statusFilter, directionFilter]);
 
   const loadSubmissions = async () => {
+    // Prevent concurrent fetches — if one is already in-flight, skip
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+    setIsLoading(true);
     try {
       const data = await getAllApplications();
       setSubmissions(data);
     } catch (error) {
       console.error('Error loading submissions:', error);
       toast.error('Failed to load applications');
+    } finally {
+      fetchingRef.current = false;
+      setIsLoading(false);
     }
   };
 
@@ -468,7 +468,14 @@ export default function AdminDashboard() {
 
       {/* Applications List */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
-        {filteredSubmissions.length === 0 ? (
+        {isLoading && submissions.length === 0 ? (
+          <Card className="bg-[#2a2a2a] border-white/10">
+            <CardContent className="p-12 text-center">
+              <div className="w-8 h-8 border-2 border-[#FEDD00]/40 border-t-[#FEDD00] rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-white/50">Loading applications...</p>
+            </CardContent>
+          </Card>
+        ) : filteredSubmissions.length === 0 ? (
           <Card className="bg-[#2a2a2a] border-white/10">
             <CardContent className="p-12 text-center">
               <FileText className="w-12 h-12 text-white/20 mx-auto mb-4" />
